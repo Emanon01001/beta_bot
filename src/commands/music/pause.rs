@@ -1,27 +1,28 @@
 use crate::util::alias::{Context, Error};
+use songbird::tracks::PlayMode;
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
-    let guild_id = ctx
-        .guild_id()
-        .ok_or("This command can only be used in a server")?;
+    ctx.defer().await?;                                 // ← 3秒ルール
 
-    let manager = songbird::get(ctx.serenity_context())
-        .await
-        .ok_or("Songbird Voice client is not initialized")?;
+    let guild_id = ctx.guild_id().unwrap();
+    let playing  = ctx.data().playing.clone();
 
-    let handler_lock = manager
-        .get(guild_id)
-        .ok_or("❌ Not connected to a voice channel")?
-        .clone();
+    // 1) 再生中ハンドルを取得
+    let Some(handle_ref) = playing.get(&guild_id) else {
+        ctx.say("⏸️ 再生中の曲がありません").await?;
+        return Ok(());
+    };
 
-    let call = handler_lock.lock().await;
-
-    if let Some(track) = call.queue().current() {
-        track.pause()?;
-        ctx.say("⏸️ Paused!").await?;
-    } else {
-        ctx.say("No track is playing!").await?;
+    // 2) まだ Playing か確認して pause
+    match handle_ref.get_info().await {
+        Ok(info) if matches!(info.playing, PlayMode::Play) => {
+            handle_ref.pause()?;
+            ctx.say("⏸️ 一時停止しました").await?;
+        }
+        _ => {
+            ctx.say("曲はすでに一時停止しています").await?;
+        },
     }
     Ok(())
 }
