@@ -1,0 +1,42 @@
+[package]
+name = "beta_bot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde_json = "1.0.140"
+serde = "1.0.219"
+futures = "0.3"
+reqwest = { version = "0.12.20", features = ["json", "blocking"]}
+log = "0.4.27"
+once_cell = "1.21.3"
+toml = "0.8.23"
+chrono = "0.4.41"
+dashmap = "6.1.0"
+anyhow = "1.0.98"
+rand = "0.9.1"
+url = "2.5.4"
+hound = "3.5.1"
+encoding_rs = "0.8.35"
+
+[dependencies.poise]
+version = "0.6.1"
+default-features = false
+features = ["cache", "chrono", "handle_panics", "collector"]
+
+[dependencies.songbird]
+version = "0.5.0"
+default-features = false
+features = ["gateway", "serenity", "native", "driver", "receive", "tungstenite", "builtin-queue"]
+
+[dependencies.symphonia]
+version = "0.5.4"
+
+[dependencies.tokio]
+version = "1.45.1"
+features = ["rt-multi-thread", "macros", "signal", "fs"]
+
+[dependencies.lavalink-rs]
+version = "0.14.1"

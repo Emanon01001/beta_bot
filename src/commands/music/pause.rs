@@ -1,0 +1,27 @@
+use crate::util::alias::{Context, Error};
+
+#[poise::command(slash_command, prefix_command)]
+pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = ctx
+        .guild_id()
+        .ok_or("This command can only be used in a server")?;
+
+    let manager = songbird::get(ctx.serenity_context())
+        .await
+        .ok_or("Songbird Voice client is not initialized")?;
+
+    let handler_lock = manager
+        .get(guild_id)
+        .ok_or("❌ Not connected to a voice channel")?
+        .clone();
+
+    let handler = handler_lock.lock().await;
+
+    if let Some(track) = handler.queue().current() {
+        track.pause()?;
+        ctx.say("⏸️ Paused!").await?;
+    } else {
+        ctx.say("No track is playing!").await?;
+    }
+    Ok(())
+}
