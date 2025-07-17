@@ -16,6 +16,7 @@ impl Default for MusicQueue {
         }
     }
 }
+
 // MusicQueueのメソッドを実装
 impl MusicQueue {
     pub fn new() -> Self {

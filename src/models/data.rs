@@ -1,10 +1,23 @@
-use songbird::tracks::TrackHandle;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+
+use dashmap::DashMap;
+use poise::serenity_prelude::GuildId;
+use songbird::tracks::TrackHandle;
 
 use crate::util::queue::MusicQueue;
 
 pub struct Data {
-    pub music: Arc<Mutex<MusicQueue>>,
-    pub playing: Arc<Mutex<Option<TrackHandle>>>,
+    /// ギルドごとの再生待ちキュー
+    pub queues: Arc<DashMap<GuildId, MusicQueue>>,
+    /// ギルドごとの現在再生中ハンドル
+    pub playing: Arc<DashMap<GuildId, TrackHandle>>,
+}
+
+impl Data {
+    pub fn new() -> Self {
+        Self {
+            queues: Arc::new(DashMap::new()),
+            playing: Arc::new(DashMap::new()),
+        }
+    }
 }

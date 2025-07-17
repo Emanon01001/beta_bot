@@ -3,11 +3,17 @@ use crate::util::{
     track::TrackRequest,
 };
 
-#[poise::command(slash_command, prefix_command)]
-pub async fn insert(ctx: Context<'_>, #[rest] query: String) -> Result<(), Error> {
-    ctx.defer().await?;
-    let req = TrackRequest::from_url(query, ctx.author().id).await?;
-    ctx.data().music.lock().await.push_front(req);
-    ctx.say("Added to the front of the queue").await?;
+#[poise::command(slash_command, guild_only)]
+pub async fn insert(
+    ctx: Context<'_>,
+    #[rest] url: String,
+) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
+    // Data から queues を取得
+    let queues = ctx.data().queues.clone(); // Arc<DashMap<…>>
+    // entry.or_default() でそのギルドの MusicQueue を初期化
+    let mut q = queues.entry(guild_id).or_default();
+    q.push_front(TrackRequest::new(url, ctx.author().id));
+    ctx.say("優先再生キュー（先頭）に追加しました").await?;
     Ok(())
 }

@@ -1,38 +1,26 @@
 use crate::util::alias::{Context, Error};
 
-#[poise::command(slash_command, prefix_command, guild_only)]
+#[poise::command(slash_command, guild_only)]
 pub async fn queue(ctx: Context<'_>) -> Result<(), Error> {
-    // 1) 応答を defer
-    ctx.defer().await?;
+    let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
+    let queues = ctx.data().queues.clone();
 
-    // 2) 自作キューをロックして全要素を Vec にコピー
-    let list = {
-        let guard = ctx.data().music.lock().await;
-        guard.to_vec()
-    };
+    // そのギルドのキューを読み取り
+    let list = queues
+        .get(&guild_id)
+        .map(|r| r.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
 
-    // 3) 空チェック
     if list.is_empty() {
-        ctx.say("🎵 キューは現在空です").await?;
+        ctx.say("🎵 キューは空です").await?;
         return Ok(());
     }
 
-    // 4) メッセージ組み立て
     let mut msg = String::from("📋 現在のキュー一覧:\n");
     for (i, tr) in list.iter().enumerate() {
-        // タイトルがあれば表示、なければ URL
         let title = tr.meta.title.as_deref().unwrap_or(&tr.url);
-        // リクエスト者のメンション
-        let user = format!("<@{}>", tr.requested_by);
-        msg.push_str(&format!(
-            "**{}**. {} — リクエスト: {}\n",
-            i + 1,
-            title,
-            user
-        ));
+        msg.push_str(&format!("{}. {}\n", i + 1, title));
     }
-
-    // 5) 送信
     ctx.say(msg).await?;
     Ok(())
 }

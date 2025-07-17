@@ -28,7 +28,7 @@ struct Tokens {
 }
 
 static GLOBAL_DATA: Lazy<Database> = Lazy::new(|| {
-    let config_content = std::fs::read_to_string("D:/Programming/Rust/beta_bot/src/Setting.toml")
+    let config_content = std::fs::read_to_string("D:/Programming/Rust/beta_bot/Setting.toml")
         .expect("設定ファイルの読み込みに失敗しました");
     toml::from_str(&config_content).expect("設定ファイルのパースに失敗しました")
 });
@@ -64,10 +64,7 @@ async fn main() {
                 .await
                 .expect("Failed to register commands in guild");
                 println!("Bot is ready!");
-                Ok(Data {
-                    music: Arc::new(Mutex::new(MusicQueue::new())),
-                    playing: Arc::new(Mutex::new(None)), // TrackHandleの初期化
-                })
+                Ok(Data::new())
             })
         })
         .build();

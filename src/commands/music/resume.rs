@@ -15,9 +15,9 @@ pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
         .ok_or("❌ Not connected to a voice channel")?
         .clone();
 
-    let handler = handler_lock.lock().await;
+    let call = handler_lock.lock().await;
 
-    if let Some(track) = handler.queue().current() {
+    if let Some(track) = call.queue().current() {
         track.play()?;
         ctx.say("▶️ Resumed!").await?;
     } else {
