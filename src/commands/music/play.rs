@@ -1,9 +1,6 @@
-use dashmap::DashMap;
-use poise::serenity_prelude::GuildId;
-use songbird::{get as get_songbird, tracks::{PlayMode, TrackHandle}};
 use crate::{
     commands::music::join::_join,
-    util::{alias::Context, play::play_track_req, queue::MusicQueue, track::TrackRequest},
+    util::{alias::Context, play::play_track_req, track::TrackRequest},
     Error,
 };
 
@@ -35,7 +32,7 @@ pub async fn play(
 
     // 1) クエリがあればキューへ追加
     if let Some(url) = query {
-        let req = TrackRequest::new(url, ctx.author().id);
+        let req = TrackRequest::from_url(url, ctx.author().id).await?;
         queues.entry(guild_id).or_default().push_back(req);
     }
 
@@ -56,7 +53,7 @@ pub async fn play(
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req(guild_id, call, queues_arc, next_req)
-            let handle = play_track_req(guild_id, call.clone(), queues.clone(), next_req).await?;
+            let (handle, _) = play_track_req(guild_id, call.clone(), queues.clone(), playing.clone(), next_req).await?;
             playing.insert(guild_id, handle);
             ctx.say("▶️ 再生を開始しました").await?;
             return Ok(());

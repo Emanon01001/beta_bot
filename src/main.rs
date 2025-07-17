@@ -7,13 +7,12 @@ use once_cell::sync::Lazy;
 use poise::serenity_prelude::{Client, GatewayIntents, GuildId};
 use serde::Deserialize;
 use songbird::{Config, SerenityInit};
-use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
+use std::sync::OnceLock;
 
 use crate::{
     commands::create_commands::create_commands,
     models::data::Data,
-    util::{alias::Error, config::MusicConfig, queue::MusicQueue},
+    util::alias::Error,
 };
 
 #[derive(Deserialize, Debug)]

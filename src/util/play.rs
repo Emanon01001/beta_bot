@@ -16,12 +16,14 @@ pub async fn play_track_req(
     guild_id: GuildId,
     call: Arc<Mutex<Call>>,
     queues: Arc<DashMap<GuildId, MusicQueue>>,
+    playing: Arc<DashMap<GuildId, TrackHandle>>,
     track_req: TrackRequest,
-) -> Result<TrackHandle, Error> {
+) -> Result<(TrackHandle, TrackRequest), Error> {
     let on_end = TrackEndHandler {
         guild_id,
         queues: queues.clone(),
         call: call.clone(),
+        playing: playing.clone()
     };
 
     // 再生本体へ委譲
@@ -29,9 +31,9 @@ pub async fn play_track_req(
 }
 pub async fn play_track(
     call: Arc<Mutex<Call>>,
-    track_req: TrackRequest,
+    mut track_req: TrackRequest,
     on_end: Option<TrackEndHandler>,
-) -> Result<TrackHandle, Error> {
+) -> Result<(TrackHandle, TrackRequest), Error> {
     // URL をクローン（所有権を渡す）
     let url = track_req.url.clone();
 
@@ -43,22 +45,22 @@ pub async fn play_track(
     };
 
     let audio = ytdl.create_async().await.map_err(Error::from)?;
-
-    // 以降 track_req.meta の更新が不要なら触らなくてOK
-    // ...
-
+    let meta  = ytdl.aux_metadata().await.unwrap_or_default();
+    track_req.meta = meta;
     let input = songbird::input::Input::Live(
         LiveInput::Raw(audio),
         Some(Box::new(ytdl)),
     );
+
     let handle = {
         let mut guard = call.lock().await;
         guard.play_only(Track::from(input))
     };
 
     if let Some(handler) = on_end {
-        handle.add_event(Event::Track(TrackEvent::End), handler).ok();
+        handle.add_event(Event::Track(TrackEvent::End), handler.clone()).ok();
+        handle.add_event(Event::Track(TrackEvent::Error), handler).ok();
     }
 
-    Ok(handle)
+    Ok((handle, track_req))
 }

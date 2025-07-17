@@ -5,6 +5,7 @@ use crate::util::{
 
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
     let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     // VoiceClient
     let manager = songbird::get(ctx.serenity_context())
@@ -20,7 +21,7 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req の引数は (guild_id, call, queues_arc, track_req)
-            let handle = play_track_req(guild_id, call.clone(), queues.clone(), next_req).await?;
+            let (handle, _) = play_track_req(guild_id, call.clone(), queues.clone(), playing.clone(), next_req).await?;
             playing.insert(guild_id, handle);
             ctx.say("⏭️ スキップして次の曲を再生しました").await?;
             return Ok(());
