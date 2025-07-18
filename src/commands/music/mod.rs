@@ -8,3 +8,4 @@ pub mod repeat;
 pub mod resume;
 pub mod skip;
 pub mod stop;
+pub mod shuffle;

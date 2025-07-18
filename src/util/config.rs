@@ -1,11 +1,10 @@
-use songbird::tracks::PlayMode;
 
 use crate::util::repeat::RepeatMode;
 
 #[derive(Debug)]
 pub struct MusicConfig {
     pub repeat_mode: RepeatMode,
-    pub play_mode: PlayMode,
+    pub shuffle: bool,
     pub volume: f32,
 }
 
@@ -13,7 +12,8 @@ impl MusicConfig {
     pub fn new() -> Self {
         Self {
             repeat_mode: RepeatMode::Off,
-            play_mode: PlayMode::Stop,
+            shuffle: false,
+            // デフォルトの音量は 1.0 (100%)
             volume: 1.0,
         }
     }

@@ -52,7 +52,7 @@ pub async fn play(
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req(guild_id, call, queues_arc, next_req)
-            let (handle, _) = play_track_req(
+            let _ = play_track_req(
                 guild_id,
                 call.clone(),
                 queues.clone(),

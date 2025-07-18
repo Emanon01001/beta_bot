@@ -6,9 +6,7 @@ use poise::serenity_prelude::GuildId;
 use crate::util::{queue::MusicQueue, types::PlayingMap};
 
 pub struct Data {
-    /// ギルドごとの再生待ちキュー
     pub queues: Arc<DashMap<GuildId, MusicQueue>>,
-    /// ギルドごとの現在再生中ハンドル
     pub playing: PlayingMap,
 }
 

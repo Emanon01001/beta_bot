@@ -24,7 +24,7 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req の引数は (guild_id, call, queues_arc, track_req)
-            let (handle, _) = play_track_req(
+            let _ = play_track_req(
                 guild_id,
                 call.clone(),
                 queues.clone(),

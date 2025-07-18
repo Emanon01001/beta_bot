@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use crate::util::{config::MusicConfig, repeat::RepeatMode, track::TrackRequest};
 use std::collections::VecDeque;
 
@@ -35,7 +37,16 @@ impl MusicQueue {
 
     /// 次に再生する曲（front）を取り出す
     pub fn pop_next(&mut self) -> Option<TrackRequest> {
-        self.queue.pop_front()
+        if self.config.shuffle {
+            let len = self.queue.len();
+            if len == 0 {
+                return None;
+            }
+            let idx = rand::rng().gen_range(0..len);
+            self.queue.remove(idx)
+        } else {
+            self.queue.pop_front()
+        }
     }
 
     /// 参照イテレータ（cloneしない）
@@ -74,5 +85,8 @@ impl MusicQueue {
     }
     pub fn set_repeat_mode(&mut self, mode: RepeatMode) {
         self.config.repeat_mode = mode;
+    }
+    pub fn set_shuffle(&mut self, on: bool) {
+        self.config.shuffle = on;
     }
 }
