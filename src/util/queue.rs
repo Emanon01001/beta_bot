@@ -1,6 +1,13 @@
 use crate::util::{config::MusicConfig, track::TrackRequest};
 use std::collections::VecDeque;
 
+#[derive(Debug, Clone, Copy)]
+pub enum RepeatMode {
+    Off,
+    Track,
+    Queue,
+}
+
 #[derive(Debug)]
 pub struct MusicQueue {
     queue: VecDeque<TrackRequest>,

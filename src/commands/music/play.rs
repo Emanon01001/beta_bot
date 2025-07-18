@@ -1,7 +1,7 @@
 use crate::{
+    Error,
     commands::music::join::_join,
     util::{alias::Context, play::play_track_req, track::TrackRequest},
-    Error,
 };
 
 #[poise::command(slash_command, prefix_command, guild_only)]
@@ -24,11 +24,11 @@ pub async fn play(
     let call = manager
         .get(guild_id)
         .ok_or("❌ VC に接続していません")?
-        .clone();                                   // Arc<Mutex<Call>>
+        .clone(); // Arc<Mutex<Call>>
 
     // --- Data の DashMap（Arc）をクローンして保持 ---
-    let queues  = ctx.data().queues.clone();        // Arc<DashMap<…>>
-    let playing = ctx.data().playing.clone();       // Arc<DashMap<…>>
+    let queues = ctx.data().queues.clone(); // Arc<DashMap<…>>
+    let playing = ctx.data().playing.clone(); // Arc<DashMap<…>>
 
     // 1) クエリがあればキューへ追加
     if let Some(url) = query {
@@ -53,7 +53,15 @@ pub async fn play(
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req(guild_id, call, queues_arc, next_req)
-            let (handle, _) = play_track_req(guild_id, call.clone(), queues.clone(), playing.clone(), next_req).await?;
+            let (handle, _) = play_track_req(
+                guild_id,
+                call.clone(),
+                queues.clone(),
+                playing.clone(),
+                next_req,
+            )
+            .await?;
+
             playing.insert(guild_id, handle);
             ctx.say("▶️ 再生を開始しました").await?;
             return Ok(());

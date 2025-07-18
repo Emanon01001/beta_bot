@@ -11,17 +11,27 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
     let manager = songbird::get(ctx.serenity_context())
         .await
         .ok_or("Songbird 未初期化")?;
-    let call = manager.get(guild_id).ok_or("❌ VC に接続していません")?.clone();
+    let call = manager
+        .get(guild_id)
+        .ok_or("❌ VC に接続していません")?
+        .clone();
 
     // キュー & playing map
-    let queues  = ctx.data().queues.clone();
+    let queues = ctx.data().queues.clone();
     let playing = ctx.data().playing.clone();
 
     // pop_next
     if let Some(mut q) = queues.get_mut(&guild_id) {
         if let Some(next_req) = q.pop_next() {
             // play_track_req の引数は (guild_id, call, queues_arc, track_req)
-            let (handle, _) = play_track_req(guild_id, call.clone(), queues.clone(), playing.clone(), next_req).await?;
+            let (handle, _) = play_track_req(
+                guild_id,
+                call.clone(),
+                queues.clone(),
+                playing.clone(),
+                next_req,
+            )
+            .await?;
             playing.insert(guild_id, handle);
             ctx.say("⏭️ スキップして次の曲を再生しました").await?;
             return Ok(());

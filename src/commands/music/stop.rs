@@ -7,7 +7,10 @@ pub async fn stop(ctx: Context<'_>) -> Result<(), Error> {
     let manager = songbird::get(ctx.serenity_context())
         .await
         .ok_or("Songbird 未初期化")?;
-    let call = manager.get(guild_id).ok_or("❌ VC に接続していません")?.clone();
+    let call = manager
+        .get(guild_id)
+        .ok_or("❌ VC に接続していません")?
+        .clone();
 
     // 停止
     call.lock().await.stop();

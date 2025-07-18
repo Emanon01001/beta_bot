@@ -1,6 +1,6 @@
 use dashmap::DashMap;
-use poise::serenity_prelude::{async_trait, GuildId};
-use songbird::{tracks::TrackHandle, Call, Event, EventContext, EventHandler};
+use poise::serenity_prelude::{GuildId, async_trait};
+use songbird::{Call, Event, EventContext, EventHandler, tracks::TrackHandle};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -9,9 +9,9 @@ use crate::util::queue::MusicQueue;
 #[derive(Clone)]
 pub struct TrackEndHandler {
     pub guild_id: GuildId,
-    pub queues  : Arc<DashMap<GuildId, MusicQueue>>,
-    pub call    : Arc<Mutex<Call>>,
-    pub playing : Arc<DashMap<GuildId, TrackHandle>>, // ← 追加しておくと掃除できる
+    pub queues: Arc<DashMap<GuildId, MusicQueue>>,
+    pub call: Arc<Mutex<Call>>,
+    pub playing: Arc<DashMap<GuildId, TrackHandle>>, // ← 追加しておくと掃除できる
 }
 
 #[async_trait]
@@ -21,17 +21,21 @@ impl EventHandler for TrackEndHandler {
         let next_opt = {
             if let Some(mut q) = self.queues.get_mut(&self.guild_id) {
                 q.pop_next()
-            } else { None }
+            } else {
+                None
+            }
         };
 
         if let Some(next_req) = next_opt {
             let h = TrackEndHandler {
                 guild_id: self.guild_id,
-                queues:   self.queues.clone(),
-                call:     self.call.clone(),
-                playing:  self.playing.clone(),
+                queues: self.queues.clone(),
+                call: self.call.clone(),
+                playing: self.playing.clone(),
             };
-            if let Ok((handle, _)) = crate::util::play::play_track(self.call.clone(), next_req, Some(h.clone())).await {
+            if let Ok((handle, _)) =
+                crate::util::play::play_track(self.call.clone(), next_req, Some(h.clone())).await
+            {
                 // 新しいハンドルを保存
                 self.playing.insert(self.guild_id, handle);
             } else {

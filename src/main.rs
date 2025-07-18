@@ -9,11 +9,7 @@ use serde::Deserialize;
 use songbird::{Config, SerenityInit};
 use std::sync::OnceLock;
 
-use crate::{
-    commands::create_commands::create_commands,
-    models::data::Data,
-    util::alias::Error,
-};
+use crate::{commands::create_commands::create_commands, models::data::Data, util::alias::Error};
 
 #[derive(Deserialize, Debug)]
 struct Database {
@@ -55,13 +51,6 @@ async fn main() {
                 poise::builtins::register_globally(_ctx, &_framework.options().commands)
                     .await
                     .expect("Failed to register commands globally");
-                poise::builtins::register_in_guild(
-                    _ctx,
-                    &_framework.options().commands,
-                    GuildId::new(1336765168704557086),
-                ) // Replace with your guild ID
-                .await
-                .expect("Failed to register commands in guild");
                 println!("Bot is ready!");
                 Ok(Data::new())
             })

@@ -4,10 +4,7 @@ use crate::util::{
 };
 
 #[poise::command(slash_command, guild_only)]
-pub async fn insert(
-    ctx: Context<'_>,
-    #[rest] url: String,
-) -> Result<(), Error> {
+pub async fn insert(ctx: Context<'_>, #[rest] url: String) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     // Data から queues を取得
     let queues = ctx.data().queues.clone(); // Arc<DashMap<…>>

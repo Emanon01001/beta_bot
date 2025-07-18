@@ -7,7 +7,7 @@ pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
 
     let guild_id = ctx.guild_id().unwrap();
-    let playing  = ctx.data().playing.clone();
+    let playing = ctx.data().playing.clone();
 
     let Some(handle_ref) = playing.get(&guild_id) else {
         ctx.say("▶️ 再開できる曲がありません").await?;
@@ -21,7 +21,7 @@ pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
         }
         _ => {
             ctx.say("曲は一時停止していません").await?;
-        },
+        }
     }
     Ok(())
 }

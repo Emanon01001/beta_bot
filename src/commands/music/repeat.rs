@@ -1,9 +1,9 @@
-use crate::util::alias::{Context, Error};
+use crate::util::{alias::{Context, Error}, queue::RepeatMode};
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn repeat(
     ctx: Context<'_>,
-    #[description = "off / track / queue (省略でトグル)"] mode: Option<String>,
+    #[description = "off | track | queue"] mode: String,
 ) -> Result<(), Error> {
-    Ok(())
+    todo!("Implement repeat command")
 }

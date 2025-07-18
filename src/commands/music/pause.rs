@@ -3,10 +3,10 @@ use songbird::tracks::PlayMode;
 
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.defer().await?;                                 // ← 3秒ルール
+    ctx.defer().await?; // ← 3秒ルール
 
     let guild_id = ctx.guild_id().unwrap();
-    let playing  = ctx.data().playing.clone();
+    let playing = ctx.data().playing.clone();
 
     // 1) 再生中ハンドルを取得
     let Some(handle_ref) = playing.get(&guild_id) else {
@@ -22,7 +22,7 @@ pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
         }
         _ => {
             ctx.say("曲はすでに一時停止しています").await?;
-        },
+        }
     }
     Ok(())
 }

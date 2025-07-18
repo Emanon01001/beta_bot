@@ -1,14 +1,18 @@
 use dashmap::DashMap;
 use poise::serenity_prelude::GuildId;
 use songbird::{
-    input::{Compose, LiveInput, YoutubeDl}, tracks::{Track, TrackHandle}, Call, Event, TrackEvent
+    Call, Event, TrackEvent,
+    input::{Compose, LiveInput, YoutubeDl},
+    tracks::{Track, TrackHandle},
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use url::Url;
 
 use crate::{
-    get_http_client, handlers::track_end::TrackEndHandler, util::{queue::MusicQueue, track::TrackRequest}, Error
+    Error, get_http_client,
+    handlers::track_end::TrackEndHandler,
+    util::{queue::MusicQueue, track::TrackRequest},
 };
 
 /// ラッパー: 再生を開始し TrackHandle を返す
@@ -23,7 +27,7 @@ pub async fn play_track_req(
         guild_id,
         queues: queues.clone(),
         call: call.clone(),
-        playing: playing.clone()
+        playing: playing.clone(),
     };
 
     // 再生本体へ委譲
@@ -45,12 +49,9 @@ pub async fn play_track(
     };
 
     let audio = ytdl.create_async().await.map_err(Error::from)?;
-    let meta  = ytdl.aux_metadata().await.unwrap_or_default();
+    let meta = ytdl.aux_metadata().await.unwrap_or_default();
     track_req.meta = meta;
-    let input = songbird::input::Input::Live(
-        LiveInput::Raw(audio),
-        Some(Box::new(ytdl)),
-    );
+    let input = songbird::input::Input::Live(LiveInput::Raw(audio), Some(Box::new(ytdl)));
 
     let handle = {
         let mut guard = call.lock().await;
@@ -58,8 +59,12 @@ pub async fn play_track(
     };
 
     if let Some(handler) = on_end {
-        handle.add_event(Event::Track(TrackEvent::End), handler.clone()).ok();
-        handle.add_event(Event::Track(TrackEvent::Error), handler).ok();
+        handle
+            .add_event(Event::Track(TrackEvent::End), handler.clone())
+            .ok();
+        handle
+            .add_event(Event::Track(TrackEvent::Error), handler)
+            .ok();
     }
 
     Ok((handle, track_req))
