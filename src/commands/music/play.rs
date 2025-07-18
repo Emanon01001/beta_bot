@@ -36,10 +36,9 @@ pub async fn play(
         queues.entry(guild_id).or_default().push_back(req);
     }
 
-    // 2) 再生中かどうかチェック
     let is_playing = if let Some(handle_ref) = playing.get(&guild_id) {
-        let info = handle_ref.value().get_info().await?;
-        !info.playing.is_done()
+        let (handle, _req) = handle_ref.value();
+        !handle.get_info().await?.playing.is_done()
     } else {
         false
     };
@@ -61,8 +60,6 @@ pub async fn play(
                 next_req,
             )
             .await?;
-
-            playing.insert(guild_id, handle);
             ctx.say("▶️ 再生を開始しました").await?;
             return Ok(());
         }

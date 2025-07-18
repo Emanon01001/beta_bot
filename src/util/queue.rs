@@ -1,16 +1,9 @@
-use crate::util::{config::MusicConfig, track::TrackRequest};
+use crate::util::{config::MusicConfig, repeat::RepeatMode, track::TrackRequest};
 use std::collections::VecDeque;
-
-#[derive(Debug, Clone, Copy)]
-pub enum RepeatMode {
-    Off,
-    Track,
-    Queue,
-}
 
 #[derive(Debug)]
 pub struct MusicQueue {
-    queue: VecDeque<TrackRequest>,
+    pub queue: VecDeque<TrackRequest>,
     pub config: MusicConfig,
 }
 
@@ -74,5 +67,12 @@ impl MusicQueue {
     //volume set
     pub fn set_volume(&mut self, v: f32) {
         self.config.volume = v;
+    }
+
+    pub fn repeat_mode(&self) -> RepeatMode {
+        self.config.repeat_mode
+    }
+    pub fn set_repeat_mode(&mut self, mode: RepeatMode) {
+        self.config.repeat_mode = mode;
     }
 }

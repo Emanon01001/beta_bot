@@ -32,7 +32,6 @@ pub async fn skip(ctx: Context<'_>) -> Result<(), Error> {
                 next_req,
             )
             .await?;
-            playing.insert(guild_id, handle);
             ctx.say("⏭️ スキップして次の曲を再生しました").await?;
             return Ok(());
         }

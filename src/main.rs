@@ -4,7 +4,7 @@ mod models;
 mod util;
 
 use once_cell::sync::Lazy;
-use poise::serenity_prelude::{Client, GatewayIntents, GuildId};
+use poise::serenity_prelude::{Client, GatewayIntents};
 use serde::Deserialize;
 use songbird::{Config, SerenityInit};
 use std::sync::OnceLock;

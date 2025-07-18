@@ -9,14 +9,12 @@ pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     let playing = ctx.data().playing.clone();
 
-    let Some(handle_ref) = playing.get(&guild_id) else {
-        ctx.say("▶️ 再開できる曲がありません").await?;
-        return Ok(());
-    };
+    let entry = playing.get(&guild_id).ok_or(Error::from("再生中の曲がありません"))?;
+    let (handle, _req) = entry.value();
 
-    match handle_ref.get_info().await {
+    match handle.get_info().await {
         Ok(info) if matches!(info.playing, PlayMode::Pause) => {
-            handle_ref.play()?;
+            handle.play()?;
             ctx.say("▶️ 再生を再開しました").await?;
         }
         _ => {
