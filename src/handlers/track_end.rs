@@ -2,14 +2,12 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use poise::serenity_prelude::{async_trait, GuildId};
+use poise::serenity_prelude::{GuildId, async_trait};
 use songbird::{Call, Event, EventContext, EventHandler};
 
 use tokio::sync::Mutex;
 
-use crate::util::{
-    queue::MusicQueue, repeat::RepeatMode, track::TrackRequest, types::PlayingMap
-};
+use crate::util::{queue::MusicQueue, repeat::RepeatMode, track::TrackRequest, types::PlayingMap};
 
 #[derive(Clone)]
 pub struct TrackEndHandler {
@@ -33,11 +31,13 @@ impl EventHandler for TrackEndHandler {
                     match q.config.repeat_mode {
                         RepeatMode::Track => q.push_front(r),
                         RepeatMode::Queue => q.push_back(r),
-                        RepeatMode::Off   => {}
+                        RepeatMode::Off => {}
                     }
                 }
                 q.pop_next()
-            } else { None }
+            } else {
+                None
+            }
         };
 
         // 再生

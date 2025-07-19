@@ -42,7 +42,7 @@ impl MusicQueue {
             if len == 0 {
                 return None;
             }
-            let idx = rand::rng().gen_range(0..len);
+            let idx = rand::rng().random_range(0..len);
             self.queue.remove(idx)
         } else {
             self.queue.pop_front()

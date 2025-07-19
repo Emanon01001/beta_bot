@@ -6,6 +6,6 @@ pub mod play;
 pub mod queue;
 pub mod repeat;
 pub mod resume;
+pub mod shuffle;
 pub mod skip;
 pub mod stop;
-pub mod shuffle;

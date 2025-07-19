@@ -32,6 +32,7 @@ features = ["gateway", "serenity", "native", "driver", "receive", "tungstenite",
 
 [dependencies.symphonia]
 version = "0.5.4"
+features = ["aac", "isomp4"]
 
 [dependencies.tokio]
 version = "1.46.1"

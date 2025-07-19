@@ -9,7 +9,9 @@ pub async fn resume(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     let playing = ctx.data().playing.clone();
 
-    let entry = playing.get(&guild_id).ok_or(Error::from("再生中の曲がありません"))?;
+    let entry = playing
+        .get(&guild_id)
+        .ok_or(Error::from("再生中の曲がありません"))?;
     let (handle, _req) = entry.value();
 
     match handle.get_info().await {
