@@ -3,8 +3,7 @@ use serde_json::json;
 use std::time::Duration;
 
 use crate::{
-    GLOBAL_DATA, get_http_client,
-    util::alias::{Context, Error},
+    get_http_client, util::alias::{Context, Error}, GLOBAL_CONFIG
 };
 
 #[poise::command(prefix_command)]
@@ -100,7 +99,7 @@ pub async fn exec(ctx: Context<'_>, #[rest] prompt: String) -> Result<(), Error>
     // リクエスト送信
     let res = client
         .post(url)
-        .header("x-goog-api-key", &GLOBAL_DATA.token.api_key)
+        .header("x-goog-api-key", &GLOBAL_CONFIG.token.api_key)
         .header("Content-Type", "application/json")
         .json(&body)
         .send()

@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
-serde_json = "1.0.140"
+clap = { version = "4.2.0", features = ["derive"] }
+serde_json = "1.0.141"
 serde = "1.0.219"
 futures = "0.3"
 reqwest = { version = "0.12.22", features = ["json", "blocking"]}
@@ -37,9 +38,6 @@ features = ["aac", "isomp4"]
 [dependencies.tokio]
 version = "1.46.1"
 features = ["rt-multi-thread", "macros", "signal", "fs"]
-
-[dependencies.lavalink-rs]
-version = "0.14.1"
 
 [dependencies.dashmap]
 version = "6.1.0"
