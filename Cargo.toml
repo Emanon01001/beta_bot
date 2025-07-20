@@ -20,6 +20,7 @@ rand = "0.9.1"
 url = "2.5.4"
 hound = "3.5.1"
 encoding_rs = "0.8.35"
+kakasi = "0.1.0"
 
 [dependencies.poise]
 version = "0.6.1"

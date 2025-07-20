@@ -1,9 +1,9 @@
-use songbird::tracks::PlayMode;
 use crate::{
     Error,
     commands::music::join::_join,
     util::{alias::Context, play::play_track_req, track::TrackRequest},
 };
+use songbird::tracks::PlayMode;
 
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn play(
@@ -13,7 +13,6 @@ pub async fn play(
     query: Option<String>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
-    let m = ctx.say("⏱️ 準備中…").await?.into_message().await?;
 
     // --- VC 接続 & Call 取得 ------------------------------------
     let gid = ctx.guild_id().ok_or("サーバー内で実行してください")?;
@@ -25,12 +24,12 @@ pub async fn play(
         .clone();
 
     // --- Data & クローン ----------------------------------------
-    let queues  = ctx.data().queues.clone();
+    let queues = ctx.data().queues.clone();
     let playing = ctx.data().playing.clone();
-    let http    = ctx.serenity_context().http.clone();
-    let ch      = ctx.channel_id();
-    let author  = ctx.author().id;
-    let query   = query.clone(); // spawn 内で ownership が必要
+    let http = ctx.serenity_context().http.clone();
+    let ch = ctx.channel_id();
+    let author = ctx.author().id;
+    let query = query.clone(); // spawn 内で ownership が必要
 
     tokio::spawn(async move {
         // --- 現在の再生状態を取得 ---------------------------------
@@ -50,7 +49,6 @@ pub async fn play(
             if let Some(handle) = current_handle {
                 let _ = handle.play();
                 let _ = ch.say(&http, "▶️ 再開しました").await;
-                let _ = http.delete_message(ch, m.id, None).await;
                 return;
             }
         }
@@ -88,7 +86,6 @@ pub async fn play(
                     let _ = ch.say(&http, format!("❌ {}", e)).await;
                 }
             }
-            let _ = http.delete_message(ch, m.id, None).await;
             return;
         }
 
@@ -117,9 +114,7 @@ pub async fn play(
             } else {
                 let _ = ch.say(&http, "❌ キューに曲がありません").await;
             }
-            let _ = http.delete_message(ch, m.id, None).await;
         }
-        // 既に再生中なら何もしない
     });
 
     Ok(())

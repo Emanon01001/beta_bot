@@ -33,7 +33,7 @@ struct Tokens {
 
 /// グローバル設定を once で保持
 static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
-    let cli = Cli::parse();                          // ← 引数取得
+    let cli = Cli::parse(); // ← 引数取得
     let contents =
         std::fs::read_to_string(&cli.config).expect("設定ファイルの読み込みに失敗しました");
     toml::from_str(&contents).expect("設定ファイルのパースに失敗しました")
@@ -60,8 +60,7 @@ async fn main() -> Result<(), Error> {
         })
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands)
-                    .await?;
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 println!("Bot is ready!");
                 Ok(Data::new())
             })
@@ -70,7 +69,7 @@ async fn main() -> Result<(), Error> {
 
     // ── Songbird 設定 ──
     let songbird_cfg = Config::default().decode_mode(songbird::driver::DecodeMode::Decode);
-    let intents      = GatewayIntents::all() | GatewayIntents::GUILD_VOICE_STATES;
+    let intents = GatewayIntents::all() | GatewayIntents::GUILD_VOICE_STATES;
 
     // ── Client 起動 ──
     let mut client = Client::builder(&GLOBAL_CONFIG.token.token, intents)

@@ -15,6 +15,8 @@ pub fn create_commands()
         commands::music::pause::pause(),
         commands::music::resume::resume(),
         commands::music::repeat::repeat(),
+        commands::music::shuffle::shuffle(),
+        commands::music::search::search(),
         commands::test::button_test(),
         commands::test::exec(),
     ];

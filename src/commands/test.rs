@@ -3,7 +3,8 @@ use serde_json::json;
 use std::time::Duration;
 
 use crate::{
-    get_http_client, util::alias::{Context, Error}, GLOBAL_CONFIG
+    GLOBAL_CONFIG, get_http_client,
+    util::alias::{Context, Error},
 };
 
 #[poise::command(prefix_command)]
