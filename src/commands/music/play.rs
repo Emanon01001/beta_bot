@@ -1,5 +1,4 @@
 use songbird::tracks::PlayMode;
-
 use crate::{
     Error,
     commands::music::join::_join,
@@ -14,9 +13,9 @@ pub async fn play(
     query: Option<String>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
-    let m = ctx.say("⏱️ 再生準備中…").await?.into_message().await?; // ② フォローアップを返してタイマー解除
+    let m = ctx.say("⏱️ 準備中…").await?.into_message().await?;
 
-    /* --- VC 接続 & Call 取得 ------------------------------------ */
+    // --- VC 接続 & Call 取得 ------------------------------------
     let gid = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     _join(&ctx, gid, None).await?;
     let call = songbird::get(ctx.serenity_context())
@@ -25,61 +24,102 @@ pub async fn play(
         .ok_or("❌ VC に接続していません")?
         .clone();
 
-    /* --- Data & HTTP/Channel/Author クローン ------------------- */
+    // --- Data & クローン ----------------------------------------
     let queues  = ctx.data().queues.clone();
     let playing = ctx.data().playing.clone();
     let http    = ctx.serenity_context().http.clone();
     let ch      = ctx.channel_id();
     let author  = ctx.author().id;
+    let query   = query.clone(); // spawn 内で ownership が必要
 
     tokio::spawn(async move {
-        // 0) クエリなしなら「一時停止中トラック」を再開
-        if query.is_none() {
-            if let Some(entry) = playing.get(&gid) {
-                let handle = entry.value().0.clone();
-                if let Ok(info) = handle.get_info().await {
-                    if matches!(info.playing, PlayMode::Pause) && handle.play().is_ok() {
-                        let _ = ch.say(&http, "▶️ 再開しました").await;
-                        return;
+        // --- 現在の再生状態を取得 ---------------------------------
+        let current_handle = playing.get(&gid).map(|e| e.value().0.clone());
+        let current_state = if let Some(handle) = &current_handle {
+            handle
+                .get_info()
+                .await
+                .map(|info| info.playing)
+                .unwrap_or(PlayMode::Stop)
+        } else {
+            PlayMode::Stop
+        };
+
+        // 0) クエリなしで一時停止中なら再開
+        if query.is_none() && current_state == PlayMode::Pause {
+            if let Some(handle) = current_handle {
+                let _ = handle.play();
+                let _ = ch.say(&http, "▶️ 再開しました").await;
+                let _ = http.delete_message(ch, m.id, None).await;
+                return;
+            }
+        }
+
+        // 1) クエリありなら → リクエスト作成 & 再生 or キュー追加
+        if let Some(q) = query {
+            match TrackRequest::from_url(q, author).await {
+                Ok(req) => {
+                    if current_state == PlayMode::Play {
+                        // 再生中ならキューに積む
+                        queues.entry(gid).or_default().push_back(req.clone());
+                        let _ = ch.say(&http, "🎶 キューに追加しました").await;
+                    } else {
+                        // 再生中でなければ即再生
+                        match play_track_req(
+                            gid,
+                            call.clone(),
+                            queues.clone(),
+                            playing.clone(),
+                            req.clone(),
+                        )
+                        .await
+                        {
+                            Ok((h, _)) => {
+                                playing.insert(gid, (h, req));
+                                let _ = ch.say(&http, "▶️ 再生を開始しました").await;
+                            }
+                            Err(e) => {
+                                let _ = ch.say(&http, format!("❌ {}", e)).await;
+                            }
+                        }
                     }
                 }
-            }
-        }
-
-        // 1) クエリがあればキューに追加
-        if let Some(q) = &query {
-            match TrackRequest::from_url(q.clone(), author).await {
-                Ok(req) => {
-                    queues.entry(gid).or_default().push_back(req);
-                    let _ = ch.say(&http, "🎶 キューに追加しました").await;
-                    http.delete_message(ch, m.id, None).await.ok();
-                }
                 Err(e) => {
                     let _ = ch.say(&http, format!("❌ {}", e)).await;
-                    http.delete_message(ch, m.id, None).await.ok();
-                    return;
                 }
             }
+            let _ = http.delete_message(ch, m.id, None).await;
+            return;
         }
 
-        // 3) 次曲を取り出して再生
-        if let Some(next_req) = queues.get_mut(&gid).and_then(|mut q| q.pop_next()) {
-            match play_track_req(gid, call.clone(), queues.clone(), playing.clone(), next_req.clone()).await {
-                Ok((h, _)) => {
-                    playing.insert(gid, (h.clone(), next_req));
-                    let _ = ch.say(&http, "▶️ 再生を開始しました").await;
-                    http.delete_message(ch, m.id, None).await.ok();
+        // 2) クエリなし & 再生中でないなら → キューから次曲再生
+        if current_state != PlayMode::Play {
+            playing.remove(&gid); // 古いハンドルを掃除
 
+            if let Some(next_req) = queues.get_mut(&gid).and_then(|mut q| q.pop_next()) {
+                match play_track_req(
+                    gid,
+                    call.clone(),
+                    queues.clone(),
+                    playing.clone(),
+                    next_req.clone(),
+                )
+                .await
+                {
+                    Ok((h, _)) => {
+                        playing.insert(gid, (h, next_req));
+                        let _ = ch.say(&http, "▶️ 次の曲を再生しました").await;
+                    }
+                    Err(e) => {
+                        let _ = ch.say(&http, format!("❌ {}", e)).await;
+                    }
                 }
-                Err(e) => {
-                    let _ = ch.say(&http, format!("❌ {}", e)).await;
-                    http.delete_message(ch, m.id, None).await.ok();
-                }
+            } else {
+                let _ = ch.say(&http, "❌ キューに曲がありません").await;
             }
-        } else {
-            let _ = ch.say(&http, "❌ キューに曲がありません").await;
-            http.delete_message(ch, m.id, None).await.ok();
+            let _ = http.delete_message(ch, m.id, None).await;
         }
+        // 既に再生中なら何もしない
     });
 
     Ok(())
