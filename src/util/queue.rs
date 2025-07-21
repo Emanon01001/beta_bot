@@ -58,6 +58,9 @@ impl MusicQueue {
     pub fn to_vec(&self) -> Vec<TrackRequest> {
         self.queue.iter().cloned().collect()
     }
+    pub fn remove_at(&mut self, idx: usize) -> Option<TrackRequest> {
+        if idx < self.queue.len() { self.queue.remove(idx) } else { None }
+    }
     /// キューの長さ
     pub fn len(&self) -> usize {
         self.queue.len()

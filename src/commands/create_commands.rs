@@ -17,6 +17,7 @@ pub fn create_commands()
         commands::music::repeat::repeat(),
         commands::music::shuffle::shuffle(),
         commands::music::search::search(),
+        commands::music::remove::remove(),
         commands::test::button_test(),
         commands::test::exec(),
         commands::test::pages(),
