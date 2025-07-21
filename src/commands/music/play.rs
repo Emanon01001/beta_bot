@@ -12,9 +12,10 @@ pub async fn play(
     #[description = "YouTube URL または検索語 (空で再開)"]
     query: Option<String>,
 ) -> Result<(), Error> {
+    // --- Defer: thinking を出す（後で ctx.reply() 1 回で必ず置換する） ---
     ctx.defer().await?;
 
-    // --- VC 接続 & Call 取得 ------------------------------------
+    // --- VC 接続 & Call 取得 -------------------------------------------------
     let gid = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     _join(&ctx, gid, None).await?;
     let call = songbird::get(ctx.serenity_context())
@@ -23,99 +24,92 @@ pub async fn play(
         .ok_or("❌ VC に接続していません")?
         .clone();
 
-    // --- Data & クローン ----------------------------------------
+    // --- 共有状態クローン ---------------------------------------------------
     let queues = ctx.data().queues.clone();
     let playing = ctx.data().playing.clone();
-    let http = ctx.serenity_context().http.clone();
-    let ch = ctx.channel_id();
     let author = ctx.author().id;
-    let query = query.clone(); // spawn 内で ownership が必要
 
-    tokio::spawn(async move {
-        // --- 現在の再生状態を取得 ---------------------------------
-        let current_handle = playing.get(&gid).map(|e| e.value().0.clone());
-        let current_state = if let Some(handle) = &current_handle {
-            handle
-                .get_info()
-                .await
-                .map(|info| info.playing)
-                .unwrap_or(PlayMode::Stop)
-        } else {
-            PlayMode::Stop
-        };
+    // --- 現在の再生状態 -----------------------------------------------------
+    let (current_handle, current_state) = if let Some(entry) = playing.get(&gid) {
+        let (handle, _req) = entry.value();
+        let state = handle
+            .get_info()
+            .await
+            .map(|info| info.playing)
+            .unwrap_or(PlayMode::Stop);
+        (Some(handle.clone()), state)
+    } else {
+        (None, PlayMode::Stop)
+    };
 
-        // 0) クエリなしで一時停止中なら再開
-        if query.is_none() && current_state == PlayMode::Pause {
-            if let Some(handle) = current_handle {
-                let _ = handle.play();
-                let _ = ch.say(&http, "▶️ 再開しました").await;
-                return;
-            }
+    // ================== 分岐ロジック ==================
+
+    // 0) クエリなし & 一時停止中 → 再開
+    if query.is_none() && current_state == PlayMode::Pause {
+        if let Some(h) = current_handle {
+            let _ = h.play();
+            ctx.reply("▶️ 再開しました").await?;
+            return Ok(());
         }
+    }
 
-        // 1) クエリありなら → リクエスト作成 & 再生 or キュー追加
-        if let Some(q) = query {
-            match TrackRequest::from_url(q, author).await {
-                Ok(req) => {
-                    if current_state == PlayMode::Play {
-                        // 再生中ならキューに積む
-                        queues.entry(gid).or_default().push_back(req.clone());
-                        let _ = ch.say(&http, "🎶 キューに追加しました").await;
-                    } else {
-                        // 再生中でなければ即再生
-                        match play_track_req(
-                            gid,
-                            call.clone(),
-                            queues.clone(),
-                            playing.clone(),
-                            req.clone(),
-                        )
+    // 1) クエリあり
+    if let Some(q) = query {
+        match TrackRequest::from_url(q, author).await {
+            Ok(req) => {
+                if current_state == PlayMode::Play {
+                    // 再生中 → キューに積むだけ
+                    queues.entry(gid).or_default().push_back(req);
+                    ctx.reply("🎶 再生中です。キューに追加しました").await?;
+                    return Ok(());
+                } else {
+                    // 再生していない → 即再生
+                    match play_track_req(gid, call.clone(), queues.clone(), playing.clone(), req)
                         .await
-                        {
-                            Ok((h, _)) => {
-                                playing.insert(gid, (h, req));
-                                let _ = ch.say(&http, "▶️ 再生を開始しました").await;
-                            }
-                            Err(e) => {
-                                let _ = ch.say(&http, format!("❌ {}", e)).await;
-                            }
+                    {
+                        Ok((_handle, _req)) => {
+                            // play_track_req 内で playing.insert 済み
+                            ctx.reply("▶️ 再生を開始しました").await?;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            ctx.reply(format!("❌ 再生開始に失敗: {e}")).await?;
+                            return Ok(());
                         }
                     }
                 }
+            }
+            Err(e) => {
+                ctx.reply(format!("❌ リクエスト生成失敗: {e}")).await?;
+                return Ok(());
+            }
+        }
+    }
+
+    // 2) クエリなし & 未再生 (Stop / 終了状態) → 次曲をキューから再生
+    if current_state != PlayMode::Play {
+        // 古い handle の掃除（存在したら）
+        playing.remove(&gid);
+
+        if let Some(next_req) = queues.get_mut(&gid).and_then(|mut q| q.pop_next()) {
+            match play_track_req(gid, call.clone(), queues.clone(), playing.clone(), next_req).await
+            {
+                Ok((_handle, _req)) => {
+                    ctx.reply("▶️ 次の曲を再生しました").await?;
+                    return Ok(());
+                }
                 Err(e) => {
-                    let _ = ch.say(&http, format!("❌ {}", e)).await;
+                    ctx.reply(format!("❌ 次曲再生失敗: {e}")).await?;
+                    return Ok(());
                 }
             }
-            return;
+        } else {
+            ctx.reply("❌ キューに曲がありません").await?;
+            return Ok(());
         }
+    }
 
-        // 2) クエリなし & 再生中でないなら → キューから次曲再生
-        if current_state != PlayMode::Play {
-            playing.remove(&gid); // 古いハンドルを掃除
-
-            if let Some(next_req) = queues.get_mut(&gid).and_then(|mut q| q.pop_next()) {
-                match play_track_req(
-                    gid,
-                    call.clone(),
-                    queues.clone(),
-                    playing.clone(),
-                    next_req.clone(),
-                )
-                .await
-                {
-                    Ok((h, _)) => {
-                        playing.insert(gid, (h, next_req));
-                        let _ = ch.say(&http, "▶️ 次の曲を再生しました").await;
-                    }
-                    Err(e) => {
-                        let _ = ch.say(&http, format!("❌ {}", e)).await;
-                    }
-                }
-            } else {
-                let _ = ch.say(&http, "❌ キューに曲がありません").await;
-            }
-        }
-    });
-
+    // 3) ここまで来たら「クエリなし・すでに再生中」ケース
+    ctx.reply("🎶 既に再生中です").await?;
     Ok(())
 }

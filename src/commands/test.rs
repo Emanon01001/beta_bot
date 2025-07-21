@@ -69,6 +69,20 @@ pub async fn button_test(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 #[poise::command(slash_command, prefix_command)]
+pub async fn pages(ctx: Context<'_>) -> Result<(), Error> {
+    // ページ分割のサンプル
+    let pages = &[
+        "**ページ 1**\nこれはページ 1 の内容です",
+        "**ページ 2**\nこれはページ 2 の内容です",
+        "**ページ 3**\nこれはページ 3 の内容です",
+    ];
+
+    poise::builtins::paginate(ctx, pages).await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, prefix_command)]
 pub async fn exec(ctx: Context<'_>, #[rest] prompt: String) -> Result<(), Error> {
     if prompt.trim().is_empty() {
         ctx.say("❌ プロンプトが空です").await?;

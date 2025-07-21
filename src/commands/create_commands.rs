@@ -19,6 +19,7 @@ pub fn create_commands()
         commands::music::search::search(),
         commands::test::button_test(),
         commands::test::exec(),
+        commands::test::pages(),
     ];
     commands
 }

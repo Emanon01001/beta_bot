@@ -43,3 +43,9 @@ features = ["rt-multi-thread", "macros", "signal", "fs"]
 [dependencies.dashmap]
 version = "6.1.0"
 features = ["serde"]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

@@ -25,7 +25,7 @@ use crate::{
 /* ------------------------------------------------- */
 /* ヘルパ                                            */
 /* ------------------------------------------------- */
-fn is_youtube(u: &str) -> bool {
+pub fn is_youtube(u: &str) -> bool {
     u.contains("youtube.com") || u.contains("youtu.be") || u.contains("m.youtube.com")
 }
 
