@@ -1,8 +1,8 @@
-use crate::{Error, util::alias::Context};
 use crate::util::track::TrackRequest;
+use crate::{Error, util::alias::Context};
 use chrono::Utc;
-use poise::serenity_prelude::{Colour, CreateEmbed};
 use poise::CreateReply;
+use poise::serenity_prelude::{Colour, CreateEmbed};
 
 #[poise::command(slash_command, guild_only)]
 pub async fn queue(
@@ -23,7 +23,8 @@ pub async fn queue(
             Ok(req) => {
                 queues.entry(guild_id).or_default().push_back(req.clone());
                 let title = req.meta.title.clone().unwrap_or(req.url.clone());
-                ctx.say(format!("🎶 キューに追加しました: {}", title)).await?;
+                ctx.say(format!("🎶 キューに追加しました: {}", title))
+                    .await?;
             }
             Err(e) => {
                 ctx.say(format!("❌ 追加に失敗しました: {}", e)).await?;
@@ -53,9 +54,11 @@ pub async fn queue(
     // いま再生中
     if let Some(now) = list.get(0) {
         let title = now.meta.title.as_deref().unwrap_or(&now.url);
-        let link  = now.meta.source_url.as_deref().unwrap_or(&now.url);
-        let dur   = now.meta.duration
-            .map(|d| format!("{:02}:{:02}", d.as_secs()/60, d.as_secs()%60))
+        let link = now.meta.source_url.as_deref().unwrap_or(&now.url);
+        let dur = now
+            .meta
+            .duration
+            .map(|d| format!("{:02}:{:02}", d.as_secs() / 60, d.as_secs() % 60))
             .unwrap_or_else(|| "--:--".into());
         embed = embed.field(
             "▶️ Now Playing",
@@ -70,14 +73,13 @@ pub async fn queue(
         for (i, tr) in list.iter().skip(1).enumerate().take(10) {
             let idx = i + 1;
             let title = tr.meta.title.as_deref().unwrap_or(&tr.url);
-            let link  = tr.meta.source_url.as_deref().unwrap_or(&tr.url);
-            let dur   = tr.meta.duration
-                .map(|d| format!("{:02}:{:02}", d.as_secs()/60, d.as_secs()%60))
+            let link = tr.meta.source_url.as_deref().unwrap_or(&tr.url);
+            let dur = tr
+                .meta
+                .duration
+                .map(|d| format!("{:02}:{:02}", d.as_secs() / 60, d.as_secs() % 60))
                 .unwrap_or_else(|| "--:--".into());
-            upcoming.push_str(&format!(
-                "{}. [{}]({}) • ⏱️ {}\n",
-                idx, title, link, dur
-            ));
+            upcoming.push_str(&format!("{}. [{}]({}) • ⏱️ {}\n", idx, title, link, dur));
         }
         embed = embed.field("⏭️ Up Next", upcoming, false);
     }

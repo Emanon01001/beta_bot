@@ -11,17 +11,15 @@ pub async fn search(
     #[rest]
     #[description = "検索キーワード"]
     query: String,
-    #[description = "取得件数(1-50)"]
-    count: Option<usize>,
+    #[description = "取得件数(1-50)"] count: Option<usize>,
 ) -> Result<(), Error> {
     // 1) 検索中フィードバック
     ctx.defer().await?;
 
     // 2) 件数調整＆yt-dlp flat-playlist 実行
     let n = count.unwrap_or(5).clamp(1, MAX_RESULTS);
-    let mut ytdl =
-        YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), query.clone())
-            .user_args(vec!["--flat-playlist".into(), "--dump-json".into()]);
+    let mut ytdl = YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), query.clone())
+        .user_args(vec!["--flat-playlist".into(), "--dump-json".into()]);
     let metas: Vec<AuxMetadata> = ytdl.search(Some(n)).await?.take(n).collect();
 
     // 3) 結果なしチェック

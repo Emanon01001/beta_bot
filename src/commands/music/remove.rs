@@ -11,14 +11,16 @@ pub async fn remove(
     let queue = entry.value_mut();
 
     if index == 0 || index > queue.len() {
-        ctx.reply(format!("❌ 有効な範囲は 1〜{} です", queue.len())).await?;
+        ctx.reply(format!("❌ 有効な範囲は 1〜{} です", queue.len()))
+            .await?;
         return Ok(());
     }
 
     // 0-based に換算して削除
     if let Some(tr) = queue.remove_at(index - 1) {
         let title = tr.meta.title.as_deref().unwrap_or("Unknown Title");
-        ctx.reply(format!("🗑️ キューから削除しました: **{}**", title)).await?;
+        ctx.reply(format!("🗑️ キューから削除しました: **{}**", title))
+            .await?;
     } else {
         ctx.reply("❌ 削除に失敗しました").await?;
     }
