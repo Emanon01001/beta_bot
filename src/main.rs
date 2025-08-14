@@ -1,4 +1,4 @@
-// src/main.rs ───────────────────────────────────────────
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod commands;
 mod handlers;
 mod models;
@@ -9,12 +9,9 @@ use once_cell::sync::Lazy;
 use poise::serenity_prelude::{Client, GatewayIntents};
 use serde::Deserialize;
 use songbird::{Config, SerenityInit};
-use tracing_subscriber::util::SubscriberInitExt;
 use std::{path::PathBuf, sync::OnceLock};
-use tokio::{
-    sync::oneshot,
-    task::JoinHandle,
-};
+use tokio::{sync::oneshot, task::JoinHandle};
+use tracing_subscriber::util::SubscriberInitExt;
 
 use iced::{
     Alignment, Color, Element, Length, Shadow, Size, Task, Vector, application,
@@ -109,9 +106,7 @@ fn view(app: &App) -> Element<Message> {
 }
 
 async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
-    tracing_subscriber::FmtSubscriber::new()
-        .try_init()
-        .ok();
+    tracing_subscriber::FmtSubscriber::new().try_init().ok();
 
     // ── Poise フレームワーク ──
     let framework = poise::Framework::<Data, Error>::builder()

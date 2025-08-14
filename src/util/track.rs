@@ -1,5 +1,6 @@
 use poise::serenity_prelude::{self, UserId};
-use songbird::input::{AuxMetadata, YoutubeDl};
+use songbird::input::{AuxMetadata, Compose, YoutubeDl};
+use url::Url;
 
 use crate::{
     get_http_client,
@@ -16,40 +17,52 @@ pub struct TrackRequest {
 impl TrackRequest {
     /// メタ情報は未取得の「プレースホルダ」
     pub fn new(url: String, requested_by: UserId) -> Self {
-        Self {
-            url,
-            requested_by,
-            meta: AuxMetadata::default(),
-        }
+        Self { url, requested_by, meta: AuxMetadata::default() }
     }
 
-    /// URL または検索語から TrackRequest を作成
+    #[tracing::instrument(
+        name = "TrackRequest::from_url",
+        level = "info",
+        skip_all,
+        fields(raw = %raw, requested_by = %requested_by)
+    )]
     pub async fn from_url(raw: String, requested_by: UserId) -> Result<Self, Error> {
-        // 1) YouTube URL なら直接 ytdl に渡す
-        // 2) それ以外は検索モードで ytsearch1: を使う
-        let mut ytdl = if is_youtube(&raw) {
-            YoutubeDl::new(get_http_client(), raw.clone())
+        tracing::info!("start resolving track request");
+        let parsed = Url::parse(&raw).ok();
+
+        // 非YouTubeのURLはメタデータ取得しない
+        if let Some(ref url) = parsed {
+            let is_yt = is_youtube(url.as_str());
+            tracing::info!(%url, is_youtube = is_yt, "parsed input as URL");
+            if !is_yt {
+                return Ok(Self::new(raw, requested_by));
+            }
+        } else {
+            tracing::info!("input is not a URL; treat as YouTube search query");
+        }
+
+        // YouTubeのURL、または検索語句(= YouTube検索)のみメタデータ取得
+        let mut ytdl = if parsed.is_some() {
+            YoutubeDl::new_ytdl_like("yt-dlp", get_http_client(), raw.clone())
         } else {
             YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), raw.clone())
-                .user_args(vec!["--flat-playlist".into(), "--dump-json".into()])
-        };
+        }
+        .user_args(vec!["--ignore-config".into(), "--no-warnings".into()]);
 
-        // AuxMetadata を取得 :contentReference[oaicite:0]{index=0}
         let meta: AuxMetadata = ytdl
-            .search(Some(1))
-            .await?
-            .next()
-            .ok_or("❌ メタデータが取得できませんでした")?;
+            .aux_metadata()
+            .await
+            .map_err(|e| {
+                "❌ メタデータが取得できませんでした"
+            })?;
 
-        // meta.source_url が得られればこれを、なければ raw を
-        let real_url = meta.source_url.clone().unwrap_or_else(|| raw.clone());
+        let url = meta.source_url.clone().unwrap_or(raw);
+        tracing::info!(
+            %url,
+            title = meta.title.as_deref().unwrap_or(""),
+            "metadata obtained"
+        );
 
-        println!("TrackRequest: {} -> {}", raw, real_url);
-
-        Ok(Self {
-            url: real_url,
-            requested_by,
-            meta,
-        })
+        Ok(Self { url, requested_by, meta })
     }
 }
