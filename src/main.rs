@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 use poise::serenity_prelude::{Client, GatewayIntents};
 use serde::Deserialize;
 use songbird::{Config, SerenityInit};
-use std::{path::PathBuf, sync::OnceLock};
+use std::{path::PathBuf, process::Command, sync::OnceLock};
 use tokio::{sync::oneshot, task::JoinHandle};
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -75,7 +75,7 @@ fn update(state: &mut App, _: Message) -> Task<Message> {
     Task::none()
 }
 
-fn view(app: &App) -> Element<Message> {
+fn view(app: &'_ App) -> Element<'_, Message> {
     let label = if app.bot.is_some() {
         "Stop Bot"
     } else {
@@ -108,6 +108,13 @@ fn view(app: &App) -> Element<Message> {
 async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
     tracing_subscriber::FmtSubscriber::new().try_init().ok();
 
+    let _ = if cfg!(target_os = "windows") {
+        Command::new("yt-dlp")
+            .arg("-U")
+            .output()
+            .expect("yt-dlp update failed");
+    };
+
     // ── Poise フレームワーク ──
     let framework = poise::Framework::<Data, Error>::builder()
         .options(poise::FrameworkOptions {
@@ -118,9 +125,8 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
             },
             ..Default::default()
         })
-        .setup(|ctx, _ready, framework| {
+        .setup(|_ctx, _ready, _framework| {
             Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 println!("Bot is ready!");
                 Ok(Data::new())
             })

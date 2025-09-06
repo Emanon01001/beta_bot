@@ -1,8 +1,3 @@
-//! play.rs — YouTube/SoundCloud 対応：検索でも Opus(WebM) 優先で mp4/aac を回避
-//! - YouTube(URL/検索) : YoutubeDl (lazy) + format/sort を強制 → isomp4 WARN を回避
-//! - SoundCloud       : yt-dlp JSONで事前解決（http_mp3 > hls_opus > hls_mp3 > hls_aac）
-//! - 直リンク         : HttpRequest/HlsRequest で処理
-
 use std::sync::Arc;
 
 use dashmap::DashMap;

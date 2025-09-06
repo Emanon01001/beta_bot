@@ -1,5 +1,4 @@
 use crate::{
-    commands::receive,
     util::alias::{Context, Error},
 };
 
@@ -33,8 +32,6 @@ pub async fn _join(
     if let Some(call) = manager.get(guild_id) {
         return Ok(call);
     }
-
-    receive::receive(manager.clone(), guild_id).await;
 
     let call = manager.join(guild_id, connect_to).await?;
     ctx.say(format!("Joined {}", connect_to.mention())).await?;
