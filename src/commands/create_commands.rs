@@ -21,6 +21,8 @@ pub fn create_commands()
         commands::test::button_test(),
         commands::test::exec(),
         commands::test::pages(),
+        commands::utils::capstone::capstone(),
+        commands::utils::capstone::capinfo(),
     ];
     commands
 }

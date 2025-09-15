@@ -5,3 +5,4 @@ pub mod queue;
 pub mod repeat;
 pub mod track;
 pub mod types;
+pub mod capstone;
