@@ -20,11 +20,9 @@ pub struct TrackEndHandler {
 #[async_trait]
 impl EventHandler for TrackEndHandler {
     async fn act(&self, _ctx: &EventContext<'_>) -> Option<Event> {
-        // 直前の曲を取得
         let finished: Option<TrackRequest> =
             self.playing.remove(&self.guild_id).map(|(_, (_, r))| r);
 
-        // 次曲取得 & リピート処理
         let next = {
             if let Some(mut q) = self.queues.get_mut(&self.guild_id) {
                 if let Some(r) = finished.clone() {
@@ -40,7 +38,6 @@ impl EventHandler for TrackEndHandler {
             }
         };
 
-        // 再生
         if let Some(req) = next {
             let handler = self.clone();
             if let Ok((handle, r)) =

@@ -1,5 +1,3 @@
-extern crate capstone;
-
 use anyhow::{anyhow, Result};
 use capstone::prelude::*;
 
@@ -20,50 +18,6 @@ pub fn group_names(cs: &Capstone, regs: &[InsnGroupId]) -> String {
         .collect();
     names.join(", ")
 }
-
-/// Disassemble `bytes` for the specified `arch` and return assembly text.
-///
-/// Supported `arch` values (case-insensitive):
-/// - "x86_64", "x64", "amd64"
-/// - "x86", "i386", "ia32"
-/// - "arm64", "aarch64"
-/// - "arm"
-///
-/// Uses Intel syntax for x86-family by default (overridable).
-pub fn disassemble(arch: &str, bytes: &[u8]) -> Result<String> {
-    disassemble_with(arch, bytes, None)
-}
-
-/// Disassemble with optional syntax override (x86: "intel" or "att").
-/// `arch` can include modifiers after colon, e.g.:
-/// - x86_64:intel, x86:att
-/// - arm:thumb (or arm:arm)
-pub fn disassemble_with(arch: &str, bytes: &[u8], syntax: Option<&str>) -> Result<String> {
-    let cs = build_capstone(arch, syntax)?;
-
-    let insns = cs.disasm_all(bytes, 0x1000)?;
-    let mut out = String::new();
-    for i in insns.as_ref() {
-        out.push_str(&i.to_string());
-        out.push('\n');
-    }
-    if out.is_empty() {
-        out.push_str("<no instructions>");
-    }
-    Ok(out)
-}
-
-/// Convenience: Disassemble a hex string (e.g. "4889E5 31C0") for `arch`.
-pub fn disassemble_hex(arch: &str, hex: &str) -> Result<String> {
-    disassemble_hex_with(arch, hex, None)
-}
-
-/// Disassemble hex with optional `syntax` (see `disassemble_with`).
-pub fn disassemble_hex_with(arch: &str, hex: &str, syntax: Option<&str>) -> Result<String> {
-    let bytes = parse_hex_bytes(hex)?;
-    disassemble_with(arch, &bytes, syntax)
-}
-
 /// Disassemble and include each instruction's bytes to the left of its address.
 pub fn disassemble_with_bytes_column(
     arch: &str,
@@ -261,7 +215,11 @@ fn build_capstone_with(arch: &str, syntax: Option<&str>, detail: bool) -> Result
         }
         b.build()?
     } else if matches!(base, "arm64" | "aarch64") {
-        Capstone::new().arm64().detail(detail).build()?
+        Capstone::new()
+            .arm64()
+            .mode(arch::arm64::ArchMode::Arm)
+            .detail(detail)
+            .build()?
     } else if base == "arm" {
         let mode = if tokens.iter().any(|t| *t == "thumb") {
             arch::arm::ArchMode::Thumb
@@ -334,10 +292,4 @@ pub fn inspect_details(arch: &str, bytes: &[u8], syntax: Option<&str>, count: us
     }
     if out.is_empty() { out.push_str("<no instructions>"); }
     Ok(out)
-}
-
-/// Hex variant of `inspect_details`.
-pub fn inspect_details_hex(arch: &str, hex: &str, syntax: Option<&str>, count: usize) -> Result<String> {
-    let bytes = parse_hex_bytes(hex)?;
-    inspect_details(arch, &bytes, syntax, count)
 }

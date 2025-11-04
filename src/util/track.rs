@@ -1,10 +1,12 @@
 use poise::serenity_prelude::{self, UserId};
 use songbird::input::{AuxMetadata, Compose, YoutubeDl};
 use url::Url;
+use std::process::Command;
+use tokio::time::{timeout, Duration};
 
 use crate::{
     get_http_client,
-    util::{alias::Error, play::is_youtube},
+    util::{alias::Error, play::is_youtube, ytdlp::{extra_args_from_config, cookies_args}},
 };
 
 #[derive(Clone, Debug)]
@@ -15,7 +17,6 @@ pub struct TrackRequest {
 }
 
 impl TrackRequest {
-    /// メタ情報は未取得の「プレースホルダ」
     pub fn new(url: String, requested_by: UserId) -> Self {
         Self { url, requested_by, meta: AuxMetadata::default() }
     }
@@ -29,6 +30,15 @@ impl TrackRequest {
     pub async fn from_url(raw: String, requested_by: UserId) -> Result<Self, Error> {
         tracing::info!("start resolving track request");
         let parsed = Url::parse(&raw).ok();
+
+        // Preflight: ensure yt-dlp is available on PATH
+        // This provides a clearer error to the user instead of a generic metadata failure.
+        if let Err(e) = Command::new("yt-dlp").arg("--version").output() {
+            return Err(Error::from(format!(
+                "yt-dlp が見つかりませんでした ({}). yt-dlp をインストールし、PATH に追加してください。",
+                e
+            )));
+        }
 
         // 非YouTubeのURLはメタデータ取得しない
         if let Some(ref url) = parsed {
@@ -47,14 +57,23 @@ impl TrackRequest {
         } else {
             YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), raw.clone())
         }
-        .user_args(vec!["--ignore-config".into(), "--no-warnings".into()]);
+        .user_args(vec!["--ignore-config".into(), "--no-warnings".into()])
+        .user_args(cookies_args())
+        .user_args(extra_args_from_config());
 
-        let meta: AuxMetadata = ytdl
-            .aux_metadata()
-            .await
-            .map_err(|e| {
-                "❌ メタデータが取得できませんでした"
-            })?;
+        // Apply a timeout to guard against yt-dlp hangs; if it fails, continue without metadata
+        let fut = ytdl.aux_metadata();
+        let meta: AuxMetadata = match timeout(Duration::from_secs(20), fut).await {
+            Ok(Ok(m)) => m,
+            Ok(Err(e)) => {
+                tracing::warn!(error=%e, "メタデータ取得に失敗しました。メタなしで続行します");
+                AuxMetadata::default()
+            }
+            Err(_) => {
+                tracing::warn!("メタデータ取得がタイムアウトしました。メタなしで続行します");
+                AuxMetadata::default()
+            }
+        };
 
         let url = meta.source_url.clone().unwrap_or(raw);
         tracing::info!(

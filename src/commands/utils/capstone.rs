@@ -36,22 +36,18 @@ pub async fn capstone(
         None => (None, None, bytes),
     };
 
-    let result = match capstone::disassemble_hex_with_bytes_column(
-        &arch,
-        &bytes_str,
-        syntax_opt.as_deref(),
-    ) {
-        Ok(text) => text,
-        Err(e) => format!("error: {}", e),
-    };
-
-    // Determine bytes length and pretty hex for info fields
-    let (bytes_len, pretty_hex) = match capstone::parse_hex_bytes(&bytes_str) {
+    // Parse once and reuse for both embed and file
+    let (result, bytes_len, pretty_hex, parsed_bytes_opt) = match capstone::parse_hex_bytes(&bytes_str) {
         Ok(v) => {
+            let res = capstone::disassemble_with_bytes_column(&arch, &v, syntax_opt.as_deref())
+                .map_err(|e| e.to_string());
             let hx = v.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-            (v.len(), hx)
+            match res {
+                Ok(text) => (text, v.len(), hx, Some(v)),
+                Err(e) => (format!("error: {}", e), v.len(), hx, Some(v)),
+            }
         }
-        Err(_) => (0, bytes_str.clone()), // fall back to raw input on parse error
+        Err(e) => (format!("error: {}", e), 0, bytes_str.clone(), None),
     };
 
     // Figure out syntax label for display (x86 only)
@@ -106,10 +102,16 @@ pub async fn capstone(
     if let Some(ref s) = syntax_label { file_text.push_str(&format!("Syntax: {}\n", s)); }
     file_text.push_str(&format!("Bytes: {}\n", bytes_len));
     file_text.push_str("Base: 0x1000\n\n");
-    // use untruncated body for file; rebuild from original result
-    let file_body = match capstone::disassemble_hex_with_bytes_column(&arch, &bytes_str, syntax_opt.as_deref()) {
-        Ok(text) => text,
-        Err(_) => body.clone(), // fallback to preview
+    // use untruncated body for file; rebuild using already-parsed bytes when possible
+    let file_body = match &parsed_bytes_opt {
+        Some(v) => match capstone::disassemble_with_bytes_column(&arch, v, syntax_opt.as_deref()) {
+            Ok(text) => text,
+            Err(_) => body.clone(),
+        },
+        None => match capstone::disassemble_hex_with_bytes_column(&arch, &bytes_str, syntax_opt.as_deref()) {
+            Ok(text) => text,
+            Err(_) => body.clone(),
+        }
     };
     file_text.push_str(&file_body);
     if !file_text.ends_with('\n') { file_text.push('\n'); }
@@ -140,18 +142,18 @@ pub async fn capinfo(
         None => (None, bytes),
     };
 
-    let result = match capstone::inspect_details_hex(&arch, &bytes_str, syntax_opt.as_deref(), count) {
-        Ok(text) => text,
-        Err(e) => format!("error: {}", e),
-    };
-
-    // Compute Hex preview and metadata
-    let (bytes_len, pretty_hex) = match capstone::parse_hex_bytes(&bytes_str) {
+    // Parse once and reuse for inspect and metadata
+    let (result, bytes_len, pretty_hex) = match capstone::parse_hex_bytes(&bytes_str) {
         Ok(v) => {
+            let res = capstone::inspect_details(&arch, &v, syntax_opt.as_deref(), count)
+                .map_err(|e| e.to_string());
             let hx = v.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-            (v.len(), hx)
+            match res {
+                Ok(text) => (text, v.len(), hx),
+                Err(e) => (format!("error: {}", e), v.len(), hx),
+            }
         }
-        Err(_) => (0, bytes_str.clone()),
+        Err(e) => (format!("error: {}", e), 0, bytes_str.clone()),
     };
 
     // x86 syntax label

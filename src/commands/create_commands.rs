@@ -23,6 +23,7 @@ pub fn create_commands()
         commands::test::pages(),
         commands::utils::capstone::capstone(),
         commands::utils::capstone::capinfo(),
+        commands::utils::nano_chat::chat(),
     ];
     commands
 }

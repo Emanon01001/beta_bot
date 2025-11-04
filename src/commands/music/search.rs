@@ -1,4 +1,4 @@
-use crate::{Error, get_http_client, util::alias::Context};
+use crate::{Error, get_http_client, util::{alias::Context, ytdlp::{cookies_args, extra_args_from_config}}};
 use poise::builtins::paginate;
 use songbird::input::{AuxMetadata, YoutubeDl};
 
@@ -19,7 +19,9 @@ pub async fn search(
     // 2) 件数調整＆yt-dlp flat-playlist 実行
     let n = count.unwrap_or(5).clamp(1, MAX_RESULTS);
     let mut ytdl = YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), query.clone())
-        .user_args(vec!["--flat-playlist".into(), "--dump-json".into()]);
+        .user_args(vec!["--flat-playlist".into(), "--dump-json".into()])
+        .user_args(cookies_args())
+        .user_args(extra_args_from_config());
     let metas: Vec<AuxMetadata> = ytdl.search(Some(n)).await?.take(n).collect();
 
     // 3) 結果なしチェック

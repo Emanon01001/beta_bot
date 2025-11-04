@@ -6,3 +6,4 @@ pub mod repeat;
 pub mod track;
 pub mod types;
 pub mod capstone;
+pub mod ytdlp;

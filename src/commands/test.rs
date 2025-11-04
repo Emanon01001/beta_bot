@@ -99,7 +99,7 @@ pub async fn exec(ctx: Context<'_>, #[rest] prompt: String) -> Result<(), Error>
     let body = json!({
         "system_instruction" : {
             "parts" : [
-                { "text": "※Markdown形式を絶対に使わず、必ずプレーンテキストで回答してください。" }
+                { "text": "必ずプレーンテキストで回答してください。" }
             ]
         },
         "contents": [

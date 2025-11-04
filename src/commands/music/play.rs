@@ -24,12 +24,10 @@ pub async fn play(
         .ok_or("❌ VC に接続していません")?
         .clone();
 
-    // --- 共有状態クローン ---------------------------------------------------
     let queues = ctx.data().queues.clone();
     let playing = ctx.data().playing.clone();
     let author = ctx.author().id;
 
-    // --- 現在の再生状態 -----------------------------------------------------
     let (current_handle, current_state) = if let Some(entry) = playing.get(&gid) {
         let (handle, _req) = entry.value();
         let state = handle
@@ -42,9 +40,6 @@ pub async fn play(
         (None, PlayMode::Stop)
     };
 
-    // ================== 分岐ロジック ==================
-
-    // 0) クエリなし & 一時停止中 → 再開
     if query.is_none() && current_state == PlayMode::Pause {
         if let Some(h) = current_handle {
             let _ = h.play();
@@ -53,7 +48,6 @@ pub async fn play(
         }
     }
 
-    // 1) クエリあり
     if let Some(q) = query {
         match TrackRequest::from_url(q, author).await {
             Ok(req) => {
