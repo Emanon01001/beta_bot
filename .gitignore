@@ -1,6 +1,6 @@
 /Cargo.lock
 /target
-/.vscode
+.vscode/
 Setting.toml
 *.exe
 *.wav

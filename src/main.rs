@@ -153,9 +153,11 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
             },
             ..Default::default()
         })
-        .setup(|_ctx, _ready, _framework| {
+        .setup(|ctx, ready, framework| {
             Box::pin(async move {
-                println!("Bot is ready!");
+                // Ensure slash commands are registered on startup
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                println!("{} is ready!", ready.user.name);
                 Ok(Data::new())
             })
         })
