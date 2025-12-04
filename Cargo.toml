@@ -21,7 +21,6 @@ url = "2.5.4"
 hound = "3.5.1"
 encoding_rs = "0.8.35"
 kakasi = "0.1.0"
-iced = { version = "0.13.1", features = ["tokio"] }
 capstone = "0.13.0"
 
 [dependencies.poise]

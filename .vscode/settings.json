@@ -1,3 +1,11 @@
 {
-    "cmake.ignoreCMakeListsMissing": true
+"cmake.ignoreCMakeListsMissing": true,
+  "files.exclude": {
+    "**/vendor/audiopus_sys-0.2.2": true
+  },
+
+  // C/C++ 拡張に解析させたくない場合
+  "C_Cpp.default.browse.exclude": [
+    "**/vendor/audiopus_sys-0.2.2/**"
+  ]
 }
