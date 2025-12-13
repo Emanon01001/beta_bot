@@ -10,7 +10,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 serde_json = "1.0.141"
 serde = "1.0.219"
 futures = "0.3"
-reqwest = { version = "0.12.24", features = ["json", "blocking"]}
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 log = "0.4.29"
 once_cell = "1.21.3"
 toml = "0.9.2"
@@ -25,13 +25,12 @@ capstone = "0.13.0"
 
 [dependencies.poise]
 version = "0.6.1"
-default-features = false
-features = ["cache", "chrono", "handle_panics", "collector"]
+features = ["collector"]
 
 [dependencies.songbird]
 version = "0.5.0"
 default-features = false
-features = ["gateway", "serenity", "native", "driver", "receive", "tungstenite", "builtin-queue"]
+features = ["gateway", "serenity", "rustls", "driver", "receive", "tungstenite", "builtin-queue"]
 
 [dependencies.symphonia]
 version = "0.5.4"
@@ -57,32 +56,5 @@ overflow-checks = false
 debug-assertions = false
 incremental = false
 split-debuginfo = "off"
-
-# --- 軽量リリース用プロファイル ---
-[profile.release-fast]
-opt-level = 1              # 軽めの最適化
-lto = false                # LTO無効化
-codegen-units = 8          # 並列ビルド
-panic = "unwind"           # パニック時の情報を残す
-strip = false              # シンボルを残す
-debug = true               # デバッグ情報を残す
-rpath = false
-overflow-checks = true     # オーバーフロー検出有効
-debug-assertions = true    # デバッグアサート有効
-incremental = true         # インクリメンタルビルド有効
-split-debuginfo = "packed" # デバッグ情報を分離
-
-# ビルド例: cargo build --profile release-fast
-
-# --- Android用ターゲット設定例 ---
-# Android向けにビルドする場合、以下のターゲットを利用できます。
-# 例: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
-#
-# ビルド例:
-#   cargo build --target aarch64-linux-android --release
-#
-# NDKやターゲットツールチェーンのインストールが必要です。
-# 詳細: https://github.com/rust-lang/rustup/blob/master/doc/android.md
-
 [patch.crates-io]
 audiopus_sys = { path = "vendor/audiopus_sys-0.2.2" }

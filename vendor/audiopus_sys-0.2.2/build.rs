@@ -53,6 +53,16 @@ fn build_opus(is_static: bool) {
 
     let mut cfg = cmake::Config::new(opus_path);
 
+    // Android cross builds need the ABI/level explicitly, otherwise CMake
+    // defaults to armeabi-v7a and fails when targeting aarch64-linux-android.
+    let target = env::var("TARGET").unwrap_or_default();
+    if target.contains("android") {
+        let platform = env::var("ANDROID_PLATFORM").unwrap_or_else(|_| "21".into());
+        let abi = if target.starts_with("aarch64") { "arm64-v8a" } else { "armeabi-v7a" };
+        cfg.define("ANDROID_ABI", abi)
+            .define("ANDROID_PLATFORM", platform);
+    }
+
     if cfg!(target_os = "windows") && cfg!(target_env = "msvc") {
         if env::var_os("CMAKE_GENERATOR").is_none() {
             cfg.generator("NMake Makefiles");

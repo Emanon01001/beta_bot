@@ -93,7 +93,12 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
             ])
             .user_args(cookies_args())
             .user_args(extra_args_from_config());
-        if let Ok(meta) = ytdl.aux_metadata().await { tr.meta = meta; }
+        if let Ok(meta) = ytdl.aux_metadata().await {
+            tr.meta = meta;
+            if let Some(src) = tr.meta.source_url.clone() {
+                tr.url = src;
+            }
+        }
         let fut = ytdl.create_async();
         let audio = match timeout(Duration::from_secs(20), fut).await {
             Ok(Ok(a)) => a,
@@ -132,7 +137,12 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
         }
         Err(_) => return Err(Error::from("yt-dlp (検索) がタイムアウトしました")),
     };
-    if let Ok(meta) = ytdl.aux_metadata().await { tr.meta = meta; }
+    if let Ok(meta) = ytdl.aux_metadata().await {
+        tr.meta = meta;
+        if let Some(src) = tr.meta.source_url.clone() {
+            tr.url = src;
+        }
+    }
 
     Ok(Input::Live(LiveInput::Raw(audio), Some(Box::new(ytdl))))
 }
