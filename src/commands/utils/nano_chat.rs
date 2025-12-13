@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Context as AnyhowContext};
+use anyhow::{Context as AnyhowContext, anyhow};
 use poise::CreateReply;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    get_http_client, GLOBAL_CONFIG,
+    GLOBAL_CONFIG, get_http_client,
     util::alias::{Context as PoiseContext, Error},
 };
 
@@ -24,7 +24,10 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
     match request_chat_completion(&prompt).await {
         Ok(content) => {
             let reply = if content.chars().count() > MAX_DISCORD_MESSAGE {
-                let mut truncated = content.chars().take(MAX_DISCORD_MESSAGE).collect::<String>();
+                let mut truncated = content
+                    .chars()
+                    .take(MAX_DISCORD_MESSAGE)
+                    .collect::<String>();
                 truncated.push_str("...(truncated)");
                 format!("```{truncated}```")
             } else {

@@ -1,6 +1,4 @@
-use crate::{
-    util::alias::{Context, Error},
-};
+use crate::util::alias::{Context, Error};
 
 use std::sync::Arc;
 

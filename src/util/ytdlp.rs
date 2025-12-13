@@ -79,14 +79,18 @@ pub fn extra_args_from_config() -> Vec<String> {
 /// 単純に ["--cookies", "cookies.txt"] を返すだけです。
 pub fn cookies_args() -> Vec<String> {
     // If user/config already specifies cookies, do not inject defaults.
-    if env::var("YTDLP_COOKIES_FROM_BROWSER").is_ok()
-        || env::var("YTDLP_COOKIES_FILE").is_ok()
-    {
+    if env::var("YTDLP_COOKIES_FROM_BROWSER").is_ok() || env::var("YTDLP_COOKIES_FILE").is_ok() {
         return Vec::new();
     }
     if let Some(yt) = GLOBAL_CONFIG.yt_dlp.as_ref() {
-        if yt.cookies_from_browser.as_ref().is_some_and(|s| !s.trim().is_empty())
-            || yt.cookies_file.as_ref().is_some_and(|s| !s.trim().is_empty())
+        if yt
+            .cookies_from_browser
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || yt
+                .cookies_file
+                .as_ref()
+                .is_some_and(|s| !s.trim().is_empty())
         {
             return Vec::new();
         }

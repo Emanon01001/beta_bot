@@ -1,14 +1,20 @@
 use poise::serenity_prelude::{self, UserId};
 use songbird::input::{AuxMetadata, Compose, YoutubeDl};
-use url::Url;
 use std::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
+use url::Url;
 
 use crate::{
     get_http_client,
-    util::{alias::Error, play::is_youtube, ytdlp::{extra_args_from_config, cookies_args}},
+    util::{
+        alias::Error,
+        play::is_youtube,
+        ytdlp::{cookies_args, extra_args_from_config},
+    },
 };
 
+/// 再生リクエストの元情報（入力文字列と取得済みメタデータ）を保持する。
+/// 検索語の場合も最終的な source_url を解決して `url` に書き戻す。
 #[derive(Clone, Debug)]
 pub struct TrackRequest {
     pub url: String,
@@ -18,7 +24,11 @@ pub struct TrackRequest {
 
 impl TrackRequest {
     pub fn new(url: String, requested_by: UserId) -> Self {
-        Self { url, requested_by, meta: AuxMetadata::default() }
+        Self {
+            url,
+            requested_by,
+            meta: AuxMetadata::default(),
+        }
     }
 
     #[tracing::instrument(
@@ -51,7 +61,8 @@ impl TrackRequest {
             tracing::info!("input is not a URL; treat as YouTube search query");
         }
 
-        // YouTubeのURL、または検索語句(= YouTube検索)のみメタデータ取得
+        // YouTubeのURL、または検索語句(= YouTube検索)のみメタデータ取得。
+        // yt-dlpの source_url を採用してURLを安定化させ、リピート時の再検索を避ける。
         let mut ytdl = if parsed.is_some() {
             YoutubeDl::new_ytdl_like("yt-dlp", get_http_client(), raw.clone())
         } else {
@@ -82,6 +93,10 @@ impl TrackRequest {
             "metadata obtained"
         );
 
-        Ok(Self { url, requested_by, meta })
+        Ok(Self {
+            url,
+            requested_by,
+            meta,
+        })
     }
 }

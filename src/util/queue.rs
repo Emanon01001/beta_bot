@@ -21,6 +21,7 @@ impl Default for MusicQueue {
 
 // MusicQueueのメソッドを実装
 impl MusicQueue {
+    /// 再生キューと各種フラグ（shuffle/repeat/volume）をまとめて保持する。
     pub fn new() -> Self {
         Self::default()
     }

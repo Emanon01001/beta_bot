@@ -1,9 +1,9 @@
 pub mod alias;
+pub mod capstone;
 pub mod config;
 pub mod play;
 pub mod queue;
 pub mod repeat;
 pub mod track;
 pub mod types;
-pub mod capstone;
 pub mod ytdlp;

@@ -102,22 +102,37 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
             #[serde(default)]
             yt_dlp: Option<YtDlpSettings>,
         }
-        let yt = toml::from_str::<MaybeYt>(&contents).unwrap_or_default().yt_dlp;
-        return ConfigFile { token: Tokens { token: flat.token, api_key: flat.api_key }, yt_dlp: yt };
+        let yt = toml::from_str::<MaybeYt>(&contents)
+            .unwrap_or_default()
+            .yt_dlp;
+        return ConfigFile {
+            token: Tokens {
+                token: flat.token,
+                api_key: flat.api_key,
+            },
+            yt_dlp: yt,
+        };
     }
 
     // 3) As a last resort, log and return empty tokens
     if !contents.is_empty() {
-        eprintln!("設定ファイルのパースに失敗しました: 無効な形式。デフォルトの空トークンで続行します。");
+        eprintln!(
+            "設定ファイルのパースに失敗しました: 無効な形式。デフォルトの空トークンで続行します。"
+        );
     }
-    ConfigFile { token: Tokens { token: String::new(), api_key: String::new() }, yt_dlp: None }
+    ConfigFile {
+        token: Tokens {
+            token: String::new(),
+            api_key: String::new(),
+        },
+        yt_dlp: None,
+    }
 });
 
 pub fn get_http_client() -> reqwest::Client {
     static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     HTTP_CLIENT.get_or_init(reqwest::Client::new).clone()
 }
-
 
 async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
     tracing_subscriber::FmtSubscriber::new().try_init().ok();

@@ -1,4 +1,10 @@
-use crate::{Error, get_http_client, util::{alias::Context, ytdlp::{cookies_args, extra_args_from_config}}};
+use crate::{
+    Error, get_http_client,
+    util::{
+        alias::Context,
+        ytdlp::{cookies_args, extra_args_from_config},
+    },
+};
 use poise::builtins::paginate;
 use songbird::input::{AuxMetadata, YoutubeDl};
 

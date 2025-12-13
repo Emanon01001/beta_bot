@@ -2,7 +2,7 @@
 
 #[cfg(feature = "generate_binding")]
 use std::path::PathBuf;
-use std::{env, fmt::Display, path::Path};
+use std::{env, fmt::Display};
 
 /// Outputs the library-file's prefix as word usable for actual arguments on
 /// commands or paths.

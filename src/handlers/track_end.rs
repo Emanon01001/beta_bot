@@ -25,6 +25,7 @@ impl EventHandler for TrackEndHandler {
 
         let next = {
             if let Some(mut q) = self.queues.get_mut(&self.guild_id) {
+                // リピート設定に応じて再キュー。Trackは先頭、Queueは末尾。
                 if let Some(r) = finished.clone() {
                     match q.config.repeat_mode {
                         RepeatMode::Track => q.push_front(r),
@@ -40,6 +41,7 @@ impl EventHandler for TrackEndHandler {
 
         if let Some(req) = next {
             let handler = self.clone();
+            // 次の曲を非同期で開始し、playingマップを更新する。
             if let Ok((handle, r)) =
                 crate::util::play::play_track(self.call.clone(), req, Some(handler)).await
             {

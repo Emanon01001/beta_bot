@@ -1,21 +1,15 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use capstone::prelude::*;
 
 /// Print register names
 pub fn reg_names(cs: &Capstone, regs: &[RegId]) -> String {
-    let names: Vec<String> = regs
-        .iter()
-        .filter_map(|&x| cs.reg_name(x))
-        .collect();
+    let names: Vec<String> = regs.iter().filter_map(|&x| cs.reg_name(x)).collect();
     names.join(", ")
 }
 
 /// Print instruction group names
 pub fn group_names(cs: &Capstone, regs: &[InsnGroupId]) -> String {
-    let names: Vec<String> = regs
-        .iter()
-        .filter_map(|&x| cs.group_name(x))
-        .collect();
+    let names: Vec<String> = regs.iter().filter_map(|&x| cs.group_name(x)).collect();
     names.join(", ")
 }
 /// Disassemble and include each instruction's bytes to the left of its address.
@@ -33,26 +27,32 @@ pub fn disassemble_with_bytes_column(
     let mut max_hex_len = 0usize; // width of a single hex chunk
     let mut max_addr_hex_len = 0usize;
     for ins in insns.as_ref() {
-        let hex_tokens: Vec<String> = ins
-            .bytes()
-            .iter()
-            .map(|b| format!("{:02X}", b))
-            .collect();
+        let hex_tokens: Vec<String> = ins.bytes().iter().map(|b| format!("{:02X}", b)).collect();
         let mut hex_chunks: Vec<String> = Vec::new();
         for chunk in hex_tokens.chunks(chunk_bytes) {
             let s = chunk.join(" ");
-            if s.len() > max_hex_len { max_hex_len = s.len(); }
+            if s.len() > max_hex_len {
+                max_hex_len = s.len();
+            }
             hex_chunks.push(s);
         }
-        if hex_chunks.is_empty() { hex_chunks.push(String::new()); }
+        if hex_chunks.is_empty() {
+            hex_chunks.push(String::new());
+        }
 
         let addr = ins.address();
         let addr_hex_len = format!("{:x}", addr).len();
-        if addr_hex_len > max_addr_hex_len { max_addr_hex_len = addr_hex_len; }
+        if addr_hex_len > max_addr_hex_len {
+            max_addr_hex_len = addr_hex_len;
+        }
 
         let mnem = ins.mnemonic().unwrap_or("?");
         let ops = ins.op_str().unwrap_or("");
-        let asm = if ops.is_empty() { mnem.to_string() } else { format!("{} {}", mnem, ops) };
+        let asm = if ops.is_empty() {
+            mnem.to_string()
+        } else {
+            format!("{} {}", mnem, ops)
+        };
         entries.push((hex_chunks, addr, asm));
     }
 
@@ -63,7 +63,12 @@ pub fn disassemble_with_bytes_column(
     for (hex_chunks, addr, asm) in entries {
         let addr_label = format!("0x{:0>width$x}:", addr, width = max_addr_hex_len);
         let first_hex = &hex_chunks[0];
-        let prefix = format!("{:<hex_w$}  {} ", first_hex, addr_label, hex_w = max_hex_len);
+        let prefix = format!(
+            "{:<hex_w$}  {} ",
+            first_hex,
+            addr_label,
+            hex_w = max_hex_len
+        );
         let cont_prefix_empty_addr = format!(
             "{:hex_w$}  {:addr_w$} ",
             "",
@@ -73,8 +78,16 @@ pub fn disassemble_with_bytes_column(
         );
 
         // Wrap ASM with compact hex column to maximize available width
-        let avail = if max_total_width > prefix.len() { max_total_width - prefix.len() } else { 0 };
-        let wrapped = if avail >= 40 { wrap_asm(&asm, avail) } else { vec![asm.clone()] };
+        let avail = if max_total_width > prefix.len() {
+            max_total_width - prefix.len()
+        } else {
+            0
+        };
+        let wrapped = if avail >= 40 {
+            wrap_asm(&asm, avail)
+        } else {
+            vec![asm.clone()]
+        };
 
         // First line with ASM
         if let Some(first) = wrapped.first() {
@@ -93,7 +106,13 @@ pub fn disassemble_with_bytes_column(
         }
         // Additional hex chunks (no ASM content)
         for chunk in hex_chunks.into_iter().skip(1) {
-            let ln = format!("{:<hex_w$}  {:addr_w$} ", chunk, "", hex_w = max_hex_len, addr_w = addr_label.len());
+            let ln = format!(
+                "{:<hex_w$}  {:addr_w$} ",
+                chunk,
+                "",
+                hex_w = max_hex_len,
+                addr_w = addr_label.len()
+            );
             out.push_str(&ln);
             out.push('\n');
         }
@@ -107,8 +126,12 @@ pub fn disassemble_with_bytes_column(
 /// Assembly-aware wrapping: prefers splitting at ", ", "] ", ") ",
 /// or whitespace near the `width` boundary; otherwise avoids splitting tokens.
 fn wrap_asm(s: &str, width: usize) -> Vec<String> {
-    if s.is_empty() { return Vec::new(); }
-    if s.len() <= width { return vec![s.to_string()]; }
+    if s.is_empty() {
+        return Vec::new();
+    }
+    if s.len() <= width {
+        return vec![s.to_string()];
+    }
 
     let mut out: Vec<String> = Vec::new();
     let mut start = 0usize;
@@ -271,13 +294,20 @@ pub fn parse_hex_bytes(s: &str) -> Result<Vec<u8>> {
 }
 
 /// Disassemble and include register read/write and groups for up to `count` instructions.
-pub fn inspect_details(arch: &str, bytes: &[u8], syntax: Option<&str>, count: usize) -> Result<String> {
+pub fn inspect_details(
+    arch: &str,
+    bytes: &[u8],
+    syntax: Option<&str>,
+    count: usize,
+) -> Result<String> {
     let cs = build_capstone_with(arch, syntax, true)?;
     let insns = cs.disasm_all(bytes, 0x1000)?;
 
     let mut out = String::new();
     for (idx, i) in insns.as_ref().iter().take(count).enumerate() {
-        if idx > 0 { out.push('\n'); }
+        if idx > 0 {
+            out.push('\n');
+        }
         out.push_str(&i.to_string());
         out.push('\n');
 
@@ -286,10 +316,18 @@ pub fn inspect_details(arch: &str, bytes: &[u8], syntax: Option<&str>, count: us
         let write = reg_names(&cs, detail.regs_write());
         let groups = group_names(&cs, detail.groups());
 
-        if !read.is_empty() { out.push_str(&format!("    read : {}\n", read)); }
-        if !write.is_empty() { out.push_str(&format!("    write: {}\n", write)); }
-        if !groups.is_empty() { out.push_str(&format!("    groups: {}\n", groups)); }
+        if !read.is_empty() {
+            out.push_str(&format!("    read : {}\n", read));
+        }
+        if !write.is_empty() {
+            out.push_str(&format!("    write: {}\n", write));
+        }
+        if !groups.is_empty() {
+            out.push_str(&format!("    groups: {}\n", groups));
+        }
     }
-    if out.is_empty() { out.push_str("<no instructions>"); }
+    if out.is_empty() {
+        out.push_str("<no instructions>");
+    }
     Ok(out)
 }

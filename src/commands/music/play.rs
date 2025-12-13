@@ -1,23 +1,20 @@
 use crate::{
+    Error,
     commands::music::join::_join,
     util::{
-        alias::Context,
-        play::play_track_req,
-        queue::MusicQueue,
-        track::TrackRequest,
+        alias::Context, play::play_track_req, queue::MusicQueue, track::TrackRequest,
         types::PlayingMap,
     },
-    Error,
 };
 use chrono::Utc;
 use dashmap::DashMap;
+use poise::CreateReply;
 use poise::serenity_prelude::{
     ButtonStyle, Colour, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
     CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse,
     EditMessage, GuildId, Message,
 };
-use poise::CreateReply;
-use songbird::{tracks::PlayMode, Call};
+use songbird::{Call, tracks::PlayMode};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -29,7 +26,8 @@ const ACCENT: Colour = Colour::new(0x5865F2);
 const SUCCESS: Colour = Colour::new(0x2ECC71);
 const WARNING: Colour = Colour::new(0xF1C40F);
 const DANGER: Colour = Colour::new(0xE74C3C);
-const CONTROL_WINDOW: Duration = Duration::from_secs(180);
+// 操作パネルのアイドルタイムアウト。操作があるたびにリセットされる。
+const CONTROL_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// 秒数を mm:ss 形式に整形する（不明なら "--:--"）。
 fn format_duration(dur: Option<Duration>) -> String {
@@ -42,7 +40,10 @@ fn youtube_thumbnail(url: &str) -> Option<String> {
     let parsed = Url::parse(url).ok()?;
     let host = parsed.host_str().unwrap_or_default();
     if host.contains("youtube.com") {
-        if let Some(id) = parsed.query_pairs().find_map(|(k, v)| (k == "v").then_some(v)) {
+        if let Some(id) = parsed
+            .query_pairs()
+            .find_map(|(k, v)| (k == "v").then_some(v))
+        {
             return Some(format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
         }
     }
@@ -109,7 +110,7 @@ fn control_components(state: PlayMode) -> Vec<CreateActionRow> {
             .style(ButtonStyle::Primary),
         CreateButton::new("music_stop")
             .label("⏹ 停止")
-        .style(ButtonStyle::Danger),
+            .style(ButtonStyle::Danger),
     ])]
 }
 
@@ -118,10 +119,7 @@ async fn stop_playback(ctx: &Context<'_>, gid: GuildId) -> Result<(), Error> {
     let manager = songbird::get(ctx.serenity_context())
         .await
         .ok_or("Songbird 未初期化")?;
-    let call = manager
-        .get(gid)
-        .ok_or("VC に接続していません")?
-        .clone();
+    let call = manager.get(gid).ok_or("VC に接続していません")?.clone();
 
     call.lock().await.stop();
     ctx.data().queues.remove(&gid);
@@ -154,21 +152,21 @@ async fn update_message(
             .embeds(vec![embed])
             .components(components),
     );
-    let _ = interaction.create_response(ctx.serenity_context(), builder).await;
+    let _ = interaction
+        .create_response(ctx.serenity_context(), builder)
+        .await;
 }
 
 /// ボタン押下に対し、エフェメラルで短い応答を返す。
-async fn respond_ephemeral(
-    ctx: &Context<'_>,
-    interaction: &ComponentInteraction,
-    content: &str,
-) {
+async fn respond_ephemeral(ctx: &Context<'_>, interaction: &ComponentInteraction, content: &str) {
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
             .content(content)
             .ephemeral(true),
     );
-    let _ = interaction.create_response(ctx.serenity_context(), builder).await;
+    let _ = interaction
+        .create_response(ctx.serenity_context(), builder)
+        .await;
 }
 
 /// ボタン（停止/一時停止/再開/次へ）を処理し、メッセージを更新する。
@@ -179,13 +177,16 @@ async fn handle_controls(
     queues: Arc<DashMap<GuildId, MusicQueue>>,
     playing: PlayingMap,
     mut msg: Message,
-    ) -> Result<(), Error> {
-    let start = Instant::now();
+) -> Result<(), Error> {
+    // アイドル時間が経過するまで待ち続け、何か操作があれば締切を伸ばす。
+    let mut deadline = Instant::now() + CONTROL_IDLE_TIMEOUT;
     loop {
-        if start.elapsed() >= CONTROL_WINDOW {
+        let now = Instant::now();
+        if now >= deadline {
             break;
         }
-        let timeout = CONTROL_WINDOW - start.elapsed();
+
+        let timeout = deadline.saturating_duration_since(now);
         let Some(interaction) = msg
             .await_component_interaction(ctx)
             .author_id(ctx.author().id)
@@ -194,6 +195,9 @@ async fn handle_controls(
         else {
             break;
         };
+
+        // 操作があれば締切を延長する
+        deadline = Instant::now() + CONTROL_IDLE_TIMEOUT;
 
         let custom = interaction.data.custom_id.as_str();
         match custom {
@@ -211,11 +215,19 @@ async fn handle_controls(
             "music_pause" => {
                 if let Some(entry) = playing.get(&gid) {
                     let (handle, req) = entry.value();
-                    if matches!(handle.get_info().await.map(|i| i.playing), Ok(PlayMode::Play)) {
+                    if matches!(
+                        handle.get_info().await.map(|i| i.playing),
+                        Ok(PlayMode::Play)
+                    ) {
                         let _ = handle.pause();
                         let embed = track_embed("⏸ 一時停止しました", Some(req), None, ACCENT);
-                        update_message(&ctx, &interaction, embed, control_components(PlayMode::Pause))
-                            .await;
+                        update_message(
+                            &ctx,
+                            &interaction,
+                            embed,
+                            control_components(PlayMode::Pause),
+                        )
+                        .await;
                         continue;
                     } else {
                         respond_ephemeral(&ctx, &interaction, "⏸ すでに一時停止中です").await;
@@ -227,12 +239,19 @@ async fn handle_controls(
             "music_resume" => {
                 if let Some(entry) = playing.get(&gid) {
                     let (handle, req) = entry.value();
-                    if matches!(handle.get_info().await.map(|i| i.playing), Ok(PlayMode::Pause)) {
+                    if matches!(
+                        handle.get_info().await.map(|i| i.playing),
+                        Ok(PlayMode::Pause)
+                    ) {
                         let _ = handle.play();
-                        let embed =
-                            track_embed("▶ 再生を再開しました", Some(req), None, SUCCESS);
-                        update_message(&ctx, &interaction, embed, control_components(PlayMode::Play))
-                            .await;
+                        let embed = track_embed("▶ 再生を再開しました", Some(req), None, SUCCESS);
+                        update_message(
+                            &ctx,
+                            &interaction,
+                            embed,
+                            control_components(PlayMode::Play),
+                        )
+                        .await;
                         continue;
                     } else {
                         respond_ephemeral(&ctx, &interaction, "再生を再開できませんでした").await;
@@ -329,15 +348,14 @@ async fn handle_controls(
             }
         }
     }
-    // タイムアウト後は操作ボタンを無効化して「Interaction failed」を防ぐ
-    if start.elapsed() >= CONTROL_WINDOW {
-        let _ = msg
-            .edit(
-                ctx.serenity_context(),
-                EditMessage::new().components(Vec::new()),
-            )
-            .await;
-    }
+
+    // アイドルタイムアウト後は操作ボタンを無効化して「Interaction failed」を防ぐ
+    let _ = msg
+        .edit(
+            ctx.serenity_context(),
+            EditMessage::new().components(Vec::new()),
+        )
+        .await;
     Ok(())
 }
 
@@ -410,11 +428,12 @@ pub async fn play(
                     let embed = track_embed(
                         "📥 キューに追加しました",
                         Some(&req),
-                        Some(format!("現在再生中です。キュー #{position} に追加しました。")),
+                        Some(format!(
+                            "現在再生中です。キュー #{position} に追加しました。"
+                        )),
                         ACCENT,
                     );
-                    let msg =
-                        send_control_message(&ctx, embed, current_state).await?;
+                    let msg = send_control_message(&ctx, embed, current_state).await?;
                     handle_controls(
                         &ctx,
                         gid,
@@ -426,14 +445,8 @@ pub async fn play(
                     .await?;
                     return Ok(());
                 } else {
-                    match play_track_req(
-                        gid,
-                        call.clone(),
-                        queues.clone(),
-                        playing.clone(),
-                        req,
-                    )
-                    .await
+                    match play_track_req(gid, call.clone(), queues.clone(), playing.clone(), req)
+                        .await
                     {
                         Ok((_handle, next_req)) => {
                             let embed = track_embed(
@@ -442,8 +455,7 @@ pub async fn play(
                                 Some("このトラックから再生を始めます。".into()),
                                 SUCCESS,
                             );
-                            let msg =
-                                send_control_message(&ctx, embed, PlayMode::Play).await?;
+                            let msg = send_control_message(&ctx, embed, PlayMode::Play).await?;
                             handle_controls(
                                 &ctx,
                                 gid,
@@ -462,9 +474,7 @@ pub async fn play(
                                 Some(format!("{e}")),
                                 DANGER,
                             );
-                            let _ = ctx
-                                .send(CreateReply::default().embed(embed))
-                                .await;
+                            let _ = ctx.send(CreateReply::default().embed(embed)).await;
                             return Ok(());
                         }
                     }
@@ -494,14 +504,7 @@ pub async fn play(
         };
 
         if let Some((next_req, remaining_after)) = next_req {
-            match play_track_req(
-                gid,
-                call.clone(),
-                queues.clone(),
-                playing.clone(),
-                next_req,
-            )
-            .await
+            match play_track_req(gid, call.clone(), queues.clone(), playing.clone(), next_req).await
             {
                 Ok((_handle, started_req)) => {
                     let embed = track_embed(
@@ -510,8 +513,7 @@ pub async fn play(
                         Some(format!("キュー残り {} 件", remaining_after)),
                         SUCCESS,
                     );
-                    let msg =
-                        send_control_message(&ctx, embed, PlayMode::Play).await?;
+                    let msg = send_control_message(&ctx, embed, PlayMode::Play).await?;
                     handle_controls(
                         &ctx,
                         gid,
