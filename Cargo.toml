@@ -58,5 +58,31 @@ debug-assertions = false
 incremental = false
 split-debuginfo = "off"
 
+# --- 軽量リリース用プロファイル ---
+[profile.release-fast]
+opt-level = 1              # 軽めの最適化
+lto = false                # LTO無効化
+codegen-units = 8          # 並列ビルド
+panic = "unwind"           # パニック時の情報を残す
+strip = false              # シンボルを残す
+debug = true               # デバッグ情報を残す
+rpath = false
+overflow-checks = true     # オーバーフロー検出有効
+debug-assertions = true    # デバッグアサート有効
+incremental = true         # インクリメンタルビルド有効
+split-debuginfo = "packed" # デバッグ情報を分離
+
+# ビルド例: cargo build --profile release-fast
+
+# --- Android用ターゲット設定例 ---
+# Android向けにビルドする場合、以下のターゲットを利用できます。
+# 例: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+#
+# ビルド例:
+#   cargo build --target aarch64-linux-android --release
+#
+# NDKやターゲットツールチェーンのインストールが必要です。
+# 詳細: https://github.com/rust-lang/rustup/blob/master/doc/android.md
+
 [patch.crates-io]
 audiopus_sys = { path = "vendor/audiopus_sys-0.2.2" }
