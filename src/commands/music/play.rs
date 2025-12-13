@@ -13,8 +13,8 @@ use chrono::Utc;
 use dashmap::DashMap;
 use poise::serenity_prelude::{
     ButtonStyle, Colour, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
-    CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse, GuildId,
-    Message,
+    CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse,
+    EditMessage, GuildId, Message,
 };
 use poise::CreateReply;
 use songbird::{tracks::PlayMode, Call};
@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
+use url::Url;
 
 const ACCENT: Colour = Colour::new(0x5865F2);
 const SUCCESS: Colour = Colour::new(0x2ECC71);
@@ -36,7 +37,26 @@ fn format_duration(dur: Option<Duration>) -> String {
         .unwrap_or_else(|| "--:--".to_string())
 }
 
-/// 曲情報を Embed に整形する（タイトル/リンク/長さ/リクエスト者）。
+/// YouTube の URL からサムネイル URL を導出する。
+fn youtube_thumbnail(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    let host = parsed.host_str().unwrap_or_default();
+    if host.contains("youtube.com") {
+        if let Some(id) = parsed.query_pairs().find_map(|(k, v)| (k == "v").then_some(v)) {
+            return Some(format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
+        }
+    }
+    if host.contains("youtu.be") || host.contains("m.youtube.com") {
+        if let Some(seg) = parsed.path_segments().and_then(|mut s| s.next()) {
+            if !seg.is_empty() {
+                return Some(format!("https://i.ytimg.com/vi/{seg}/hqdefault.jpg"));
+            }
+        }
+    }
+    None
+}
+
+/// 曲情報を Embed に整形する（タイトル/リンク/長さ/リクエスト者/サムネイル）。
 fn track_embed(
     title: &str,
     tr: Option<&TrackRequest>,
@@ -58,6 +78,14 @@ fn track_embed(
         embed = embed.field("Track", format!("[{}]({})", title, link), false);
         embed = embed.field("Length", format_duration(tr.meta.duration), true);
         embed = embed.field("Requested by", format!("<@{}>", tr.requested_by), true);
+        let thumb = tr
+            .meta
+            .thumbnail
+            .clone()
+            .or_else(|| youtube_thumbnail(link));
+        if let Some(thumbnail) = thumb.as_deref() {
+            embed = embed.thumbnail(thumbnail);
+        }
     }
 
     embed
@@ -150,8 +178,8 @@ async fn handle_controls(
     call: Arc<Mutex<Call>>,
     queues: Arc<DashMap<GuildId, MusicQueue>>,
     playing: PlayingMap,
-    msg: Message,
-) -> Result<(), Error> {
+    mut msg: Message,
+    ) -> Result<(), Error> {
     let start = Instant::now();
     loop {
         if start.elapsed() >= CONTROL_WINDOW {
@@ -300,6 +328,15 @@ async fn handle_controls(
                 respond_ephemeral(&ctx, &interaction, "不明な操作です").await;
             }
         }
+    }
+    // タイムアウト後は操作ボタンを無効化して「Interaction failed」を防ぐ
+    if start.elapsed() >= CONTROL_WINDOW {
+        let _ = msg
+            .edit(
+                ctx.serenity_context(),
+                EditMessage::new().components(Vec::new()),
+            )
+            .await;
     }
     Ok(())
 }
