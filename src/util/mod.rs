@@ -2,6 +2,7 @@ pub mod alias;
 pub mod capstone;
 pub mod config;
 pub mod play;
+pub mod playlist;
 pub mod queue;
 pub mod repeat;
 pub mod track;

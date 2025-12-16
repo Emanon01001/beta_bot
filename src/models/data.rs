@@ -3,11 +3,16 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use poise::serenity_prelude::GuildId;
 
-use crate::util::{queue::MusicQueue, types::PlayingMap};
+use crate::util::{
+    queue::MusicQueue,
+    types::{HistoryMap, PlayingMap, TransitionFlags},
+};
 
 pub struct Data {
     pub queues: Arc<DashMap<GuildId, MusicQueue>>,
     pub playing: PlayingMap,
+    pub transition_flags: TransitionFlags,
+    pub history: HistoryMap,
 }
 
 impl Data {
@@ -15,6 +20,8 @@ impl Data {
         Self {
             queues: Arc::new(DashMap::new()),
             playing: Arc::new(DashMap::new()),
+            transition_flags: Arc::new(DashMap::new()),
+            history: Arc::new(DashMap::new()),
         }
     }
 }

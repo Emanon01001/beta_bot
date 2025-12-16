@@ -20,7 +20,7 @@ use crate::{
     util::{
         queue::MusicQueue,
         track::TrackRequest,
-        types::PlayingMap,
+        types::{HistoryMap, PlayingMap, TransitionFlags},
         ytdlp::{cookies_args, extra_args_from_config},
     },
 };
@@ -38,6 +38,8 @@ pub async fn play_track_req(
     call: Arc<Mutex<Call>>,
     queues: Arc<DashMap<GuildId, MusicQueue>>,
     playing: PlayingMap,
+    transition_flags: TransitionFlags,
+    history: HistoryMap,
     tr: TrackRequest,
 ) -> Result<(TrackHandle, TrackRequest), Error> {
     tracing::info!(guild = %gid, url = %tr.url, "Play request");
@@ -46,11 +48,95 @@ pub async fn play_track_req(
         queues,
         call: call.clone(),
         playing: playing.clone(),
+        transition_flags,
+        history: history.clone(),
     };
 
     let (h, req) = play_track(call, tr, Some(handler)).await?;
     playing.insert(gid, (h.clone(), req.clone()));
+    {
+        const HISTORY_MAX: usize = 50;
+        let mut h = history.entry(gid).or_default();
+        h.push_back(req.clone());
+        while h.len() > HISTORY_MAX {
+            h.pop_front();
+        }
+    }
     Ok((h, req))
+}
+
+pub struct PlayNextResult {
+    pub started: Option<TrackRequest>,
+    pub skipped: usize,
+    pub remaining: usize,
+    pub last_error: Option<String>,
+}
+
+pub async fn play_next_from_queue(
+    gid: GuildId,
+    call: Arc<Mutex<Call>>,
+    queues: Arc<DashMap<GuildId, MusicQueue>>,
+    playing: PlayingMap,
+    transition_flags: TransitionFlags,
+    history: HistoryMap,
+    max_attempts: usize,
+) -> Result<PlayNextResult, Error> {
+    let mut skipped = 0usize;
+    let mut last_error: Option<String> = None;
+    let mut remaining = 0usize;
+
+    for _ in 0..max_attempts.max(1) {
+        let next_req = if let Some(mut q) = queues.get_mut(&gid) {
+            let next = q.pop_next();
+            remaining = q.len();
+            next
+        } else {
+            remaining = 0;
+            None
+        };
+
+        let Some(req) = next_req else {
+            return Ok(PlayNextResult {
+                started: None,
+                skipped,
+                remaining,
+                last_error,
+            });
+        };
+
+        match play_track_req(
+            gid,
+            call.clone(),
+            queues.clone(),
+            playing.clone(),
+            transition_flags.clone(),
+            history.clone(),
+            req,
+        )
+        .await
+        {
+            Ok((_handle, started_req)) => {
+                return Ok(PlayNextResult {
+                    started: Some(started_req),
+                    skipped,
+                    remaining,
+                    last_error,
+                });
+            }
+            Err(e) => {
+                last_error = Some(e.to_string());
+                skipped += 1;
+                continue;
+            }
+        }
+    }
+
+    Ok(PlayNextResult {
+        started: None,
+        skipped,
+        remaining,
+        last_error,
+    })
 }
 
 pub async fn play_track(
@@ -78,6 +164,10 @@ pub async fn play_track(
 
 /// yt-dlp を使って入力をストリームに変換し、メタデータを可能な範囲で保持する。
 async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
+    fn is_403_forbidden(s: &str) -> bool {
+        s.contains("403") && s.contains("Forbidden")
+    }
+
     if is_soundcloud(&tr.url) {
         tracing::info!("Source: SoundCloud URL");
         let mut source = YoutubeDl::new_search(get_http_client(), tr.url.to_string())
@@ -122,7 +212,37 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
         let fut = ytdl.create_async();
         let audio = match timeout(Duration::from_secs(20), fut).await {
             Ok(Ok(a)) => a,
-            Ok(Err(e)) => return Err(Error::from(format!("yt-dlp (YouTube) 実行失敗: {e}"))),
+            Ok(Err(e)) => {
+                let msg = e.to_string();
+                if is_403_forbidden(&msg) {
+                    tracing::warn!(error = %msg, "yt-dlp (YouTube) が 403。player_client=android で再試行します");
+                    let mut ytdl2 =
+                        YoutubeDl::new_ytdl_like("yt-dlp", get_http_client(), tr.url.to_string())
+                            .user_args(vec![
+                                "-4".into(),
+                                "--ignore-config".into(),
+                                "--no-warnings".into(),
+                                "--no-playlist".into(),
+                                "--geo-bypass".into(),
+                                "--extractor-args".into(),
+                                "youtube:player_client=android".into(),
+                                "-f".into(),
+                                "bestaudio[protocol^=http]/bestaudio".into(),
+                            ])
+                            .user_args(cookies_args())
+                            .user_args(extra_args_from_config());
+                    let fut2 = ytdl2.create_async();
+                    let audio2 = match timeout(Duration::from_secs(20), fut2).await {
+                        Ok(Ok(a2)) => a2,
+                        Ok(Err(e2)) => {
+                            return Err(Error::from(format!("yt-dlp (YouTube) 実行失敗: {e2}")))
+                        }
+                        Err(_) => return Err(Error::from("yt-dlp (YouTube) がタイムアウトしました")),
+                    };
+                    return Ok(Input::Live(LiveInput::Raw(audio2), Some(Box::new(ytdl2))));
+                }
+                return Err(Error::from(format!("yt-dlp (YouTube) 実行失敗: {e}")));
+            }
             Err(_) => return Err(Error::from("yt-dlp (YouTube) がタイムアウトしました")),
         };
         return Ok(Input::Live(LiveInput::Raw(audio), Some(Box::new(ytdl))));
@@ -146,6 +266,33 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
     let audio = match timeout(Duration::from_secs(20), fut).await {
         Ok(Ok(a)) => a,
         Ok(Err(e)) => {
+            let msg = e.to_string();
+            if is_403_forbidden(&msg) {
+                tracing::warn!(error = %msg, "yt-dlp (検索) が 403。player_client=android で再試行します");
+                let mut ytdl2 =
+                    YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), tr.url.to_string())
+                        .user_args(vec![
+                            "-4".into(),
+                            "--ignore-config".into(),
+                            "--no-warnings".into(),
+                            "--no-playlist".into(),
+                            "--geo-bypass".into(),
+                            "--extractor-args".into(),
+                            "youtube:player_client=android".into(),
+                            "-f".into(),
+                            "bestaudio[protocol^=http]/bestaudio".into(),
+                        ])
+                        .user_args(cookies_args())
+                        .user_args(extra_args_from_config());
+                let fut2 = ytdl2.create_async();
+                let audio2 = match timeout(Duration::from_secs(20), fut2).await {
+                    Ok(Ok(a2)) => a2,
+                    Ok(Err(e2)) => return Err(Error::from(format!("yt-dlp (検索) 実行失敗: {e2}"))),
+                    Err(_) => return Err(Error::from("yt-dlp (検索) がタイムアウトしました")),
+                };
+                return Ok(Input::Live(LiveInput::Raw(audio2), Some(Box::new(ytdl2))));
+            }
+
             // フォールバック: できるだけ素の条件で再試行（フォーマット/ジオ/警告抑止を外す）
             tracing::warn!(error=%e, "yt-dlp 検索の初回実行に失敗。簡易引数で再試行します");
             let mut ytdl2 =

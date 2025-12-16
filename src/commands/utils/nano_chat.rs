@@ -1,6 +1,8 @@
 use anyhow::{Context as AnyhowContext, anyhow};
 use poise::CreateReply;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+use tokio::time::{self, MissedTickBehavior};
 
 use crate::{
     GLOBAL_CONFIG, get_http_client,
@@ -21,7 +23,43 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
         .send(CreateReply::default().content("⌛ 待機中…"))
         .await?;
 
-    match request_chat_completion(&prompt).await {
+    let started_at = Instant::now();
+
+    let mut interval = time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval.tick().await;
+
+    let mut last_reported_secs = 0u64;
+    let mut can_update_status = true;
+    let mut request_fut = Box::pin(request_chat_completion(&prompt));
+
+    let result = loop {
+        tokio::select! {
+            res = &mut request_fut => break res,
+            _ = interval.tick() => {
+                if !can_update_status {
+                    continue;
+                }
+
+                let elapsed = started_at.elapsed();
+                let secs = elapsed.as_secs();
+                if secs == 0 || secs == last_reported_secs {
+                    continue;
+                }
+                last_reported_secs = secs;
+
+                let wait_text = format_elapsed(elapsed);
+                let content = format!("⌛ 待機中… ({wait_text})");
+                if status.edit(ctx, CreateReply::default().content(content)).await.is_err() {
+                    can_update_status = false;
+                }
+            }
+        }
+    };
+
+    let waited_text = format_elapsed(started_at.elapsed());
+
+    match result {
         Ok(content) => {
             let reply = if content.chars().count() > MAX_DISCORD_MESSAGE {
                 let mut truncated = content
@@ -29,9 +67,9 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
                     .take(MAX_DISCORD_MESSAGE)
                     .collect::<String>();
                 truncated.push_str("...(truncated)");
-                format!("```{truncated}```")
+                format!("```{truncated}```\n\n(待機: {waited_text})")
             } else {
-                content
+                format!("{content}\n\n(待機: {waited_text})")
             };
             status
                 .edit(ctx, CreateReply::default().content(reply))
@@ -42,13 +80,29 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
                 .edit(
                     ctx,
                     CreateReply::default()
-                        .content(format!("❌ API リクエストに失敗しました: {err}")),
+                        .content(format!(
+                            "❌ API リクエストに失敗しました (待機: {waited_text}): {err}"
+                        )),
                 )
                 .await?;
         }
     }
 
     Ok(())
+}
+
+fn format_elapsed(elapsed: Duration) -> String {
+    let secs = elapsed.as_secs();
+    if secs < 60 {
+        if secs == 0 {
+            return format!("{:.1}秒", elapsed.as_secs_f32());
+        }
+        return format!("{secs}秒");
+    }
+
+    let minutes = secs / 60;
+    let seconds = secs % 60;
+    format!("{minutes}分{seconds:02}秒")
 }
 
 async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
