@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
-use poise::serenity_prelude::{async_trait, Colour, EditMessage, GuildId, Http};
+use poise::serenity_prelude::{Colour, EditMessage, GuildId, Http, async_trait};
 use songbird::{Call, Event, EventContext, EventHandler};
 
 use tokio::sync::Mutex;
@@ -48,10 +48,8 @@ impl EventHandler for TrackEndHandler {
             return None;
         }
 
-        let finished: Option<TrackRequest> = self
-            .playing
-            .remove(&self.guild_id)
-            .map(|(_, (_, r))| r);
+        let finished: Option<TrackRequest> =
+            self.playing.remove(&self.guild_id).map(|(_, (_, r))| r);
 
         // 次の曲の開始。失敗したら数件スキップして続行する。
         let mut first = true;
@@ -90,8 +88,14 @@ impl EventHandler for TrackEndHandler {
             .await
             {
                 Ok((_handle, started_req)) => {
-                    if let Some((channel_id, message_id)) = self.now_playing.get(&self.guild_id).map(|e| *e.value()) {
-                        let remaining = self.queues.get(&self.guild_id).map(|q| q.len()).unwrap_or(0);
+                    if let Some((channel_id, message_id)) =
+                        self.now_playing.get(&self.guild_id).map(|e| *e.value())
+                    {
+                        let remaining = self
+                            .queues
+                            .get(&self.guild_id)
+                            .map(|q| q.len())
+                            .unwrap_or(0);
                         let note = Some(format!("キュー残り {remaining} 件"));
                         let embed = crate::commands::music::play::track_embed(
                             "🎵 再生中",
@@ -106,7 +110,9 @@ impl EventHandler for TrackEndHandler {
                             .edit_message(
                                 &self.http,
                                 message_id,
-                                EditMessage::new().embeds(vec![embed]).components(components),
+                                EditMessage::new()
+                                    .embeds(vec![embed])
+                                    .components(components),
                             )
                             .await;
                     }

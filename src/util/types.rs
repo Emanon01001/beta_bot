@@ -1,6 +1,6 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::collections::VecDeque;
 
 use dashmap::DashMap;
 use poise::serenity_prelude::{ChannelId, GuildId, MessageId};

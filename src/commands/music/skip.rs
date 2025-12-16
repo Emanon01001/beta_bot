@@ -4,9 +4,15 @@ use crate::util::{
     types::TransitionFlags,
 };
 use poise::serenity_prelude::{Colour, EditMessage};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
-fn transition_flag(flags: &TransitionFlags, gid: poise::serenity_prelude::GuildId) -> Arc<AtomicBool> {
+fn transition_flag(
+    flags: &TransitionFlags,
+    gid: poise::serenity_prelude::GuildId,
+) -> Arc<AtomicBool> {
     flags
         .entry(gid)
         .or_insert_with(|| Arc::new(AtomicBool::new(false)))
@@ -16,8 +22,7 @@ fn transition_flag(flags: &TransitionFlags, gid: poise::serenity_prelude::GuildI
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn skip(
     ctx: Context<'_>,
-    #[description = "進む(+) / 戻る(-) の数。省略時は +1"]
-    offset: Option<i32>,
+    #[description = "進む(+) / 戻る(-) の数。省略時は +1"] offset: Option<i32>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
     let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
@@ -119,7 +124,9 @@ pub async fn skip(
         )
         .await?;
 
-        if let Some((channel_id, message_id)) = ctx.data().now_playing.get(&guild_id).map(|e| *e.value()) {
+        if let Some((channel_id, message_id)) =
+            ctx.data().now_playing.get(&guild_id).map(|e| *e.value())
+        {
             let remaining = queues.get(&guild_id).map(|q| q.len()).unwrap_or(0);
             let embed = crate::commands::music::play::track_embed(
                 "🎵 再生中",
@@ -133,7 +140,9 @@ pub async fn skip(
                 .edit_message(
                     &ctx.serenity_context().http,
                     message_id,
-                    EditMessage::new().embeds(vec![embed]).components(components),
+                    EditMessage::new()
+                        .embeds(vec![embed])
+                        .components(components),
                 )
                 .await;
         }
@@ -186,7 +195,9 @@ pub async fn skip(
                 .edit_message(
                     &ctx.serenity_context().http,
                     message_id,
-                    EditMessage::new().embeds(vec![embed]).components(components),
+                    EditMessage::new()
+                        .embeds(vec![embed])
+                        .components(components),
                 )
                 .await;
         }

@@ -19,6 +19,11 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
         return Ok(());
     }
 
+    tracing::info!(
+        author = %ctx.author().id,
+        prompt_chars = prompt.chars().count(),
+        "nano chat invoked"
+    );
     let status = ctx
         .send(CreateReply::default().content("⌛ 待機中…"))
         .await?;
@@ -61,6 +66,11 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
 
     match result {
         Ok(content) => {
+            tracing::info!(
+                author = %ctx.author().id,
+                took_ms = started_at.elapsed().as_millis(),
+                "nano chat completed"
+            );
             let reply = if content.chars().count() > MAX_DISCORD_MESSAGE {
                 let mut truncated = content
                     .chars()
@@ -76,13 +86,18 @@ pub async fn chat(ctx: PoiseContext<'_>, #[rest] prompt: String) -> Result<(), E
                 .await?;
         }
         Err(err) => {
+            tracing::warn!(
+                author = %ctx.author().id,
+                took_ms = started_at.elapsed().as_millis(),
+                error = %err,
+                "nano chat failed"
+            );
             status
                 .edit(
                     ctx,
-                    CreateReply::default()
-                        .content(format!(
-                            "❌ API リクエストに失敗しました (待機: {waited_text}): {err}"
-                        )),
+                    CreateReply::default().content(format!(
+                        "❌ API リクエストに失敗しました (待機: {waited_text}): {err}"
+                    )),
                 )
                 .await?;
         }
@@ -116,6 +131,7 @@ async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
         return Err(anyhow!("nano-gpt API key is missing in the configuration"));
     }
 
+    let started = Instant::now();
     let body = ChatRequest {
         model: "huihui-ai/Llama-3.3-70B-Instruct-abliterated",
         messages: vec![MessagePayload {
@@ -125,10 +141,15 @@ async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
     };
 
     let client = get_http_client();
+    tracing::debug!(
+        model = body.model,
+        prompt_chars = trimmed_prompt.chars().count(),
+        "sending nano-gpt chat completion request"
+    );
     let response = client
         .post(CHAT_COMPLETIONS_URL)
         .bearer_auth(api_key)
-        .header("Content-Type", "application/json")
+        .header("Contentgit pull origin main-Type", "application/json")
         .json(&body)
         .send()
         .await
@@ -140,6 +161,11 @@ async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
             .text()
             .await
             .unwrap_or_else(|_| "<failed to read error body>".into());
+        tracing::warn!(
+            status = status.as_u16(),
+            took_ms = started.elapsed().as_millis(),
+            "nano-gpt returned non-success"
+        );
         return Err(anyhow!(
             "HTTP error: {} {}\n{}",
             status.as_u16(),
@@ -159,6 +185,7 @@ async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
         .find_map(|choice| choice.message.and_then(|m| m.content))
         .ok_or_else(|| anyhow!("response did not contain a message content"))?;
 
+    tracing::debug!(took_ms = started.elapsed().as_millis(), "nano-gpt response parsed");
     Ok(content)
 }
 

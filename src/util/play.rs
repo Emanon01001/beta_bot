@@ -243,9 +243,11 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
                     let audio2 = match timeout(Duration::from_secs(20), fut2).await {
                         Ok(Ok(a2)) => a2,
                         Ok(Err(e2)) => {
-                            return Err(Error::from(format!("yt-dlp (YouTube) 実行失敗: {e2}")))
+                            return Err(Error::from(format!("yt-dlp (YouTube) 実行失敗: {e2}")));
                         }
-                        Err(_) => return Err(Error::from("yt-dlp (YouTube) がタイムアウトしました")),
+                        Err(_) => {
+                            return Err(Error::from("yt-dlp (YouTube) がタイムアウトしました"));
+                        }
                     };
                     return Ok(Input::Live(LiveInput::Raw(audio2), Some(Box::new(ytdl2))));
                 }
@@ -277,25 +279,30 @@ async fn resolve_input(tr: &mut TrackRequest) -> Result<Input, Error> {
             let msg = e.to_string();
             if is_403_forbidden(&msg) {
                 tracing::warn!(error = %msg, "yt-dlp (検索) が 403。player_client=android で再試行します");
-                let mut ytdl2 =
-                    YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), tr.url.to_string())
-                        .user_args(vec![
-                            "-4".into(),
-                            "--ignore-config".into(),
-                            "--no-warnings".into(),
-                            "--no-playlist".into(),
-                            "--geo-bypass".into(),
-                            "--extractor-args".into(),
-                            "youtube:player_client=android".into(),
-                            "-f".into(),
-                            "bestaudio[protocol^=http]/bestaudio".into(),
-                        ])
-                        .user_args(cookies_args())
-                        .user_args(extra_args_from_config());
+                let mut ytdl2 = YoutubeDl::new_search_ytdl_like(
+                    "yt-dlp",
+                    get_http_client(),
+                    tr.url.to_string(),
+                )
+                .user_args(vec![
+                    "-4".into(),
+                    "--ignore-config".into(),
+                    "--no-warnings".into(),
+                    "--no-playlist".into(),
+                    "--geo-bypass".into(),
+                    "--extractor-args".into(),
+                    "youtube:player_client=android".into(),
+                    "-f".into(),
+                    "bestaudio[protocol^=http]/bestaudio".into(),
+                ])
+                .user_args(cookies_args())
+                .user_args(extra_args_from_config());
                 let fut2 = ytdl2.create_async();
                 let audio2 = match timeout(Duration::from_secs(20), fut2).await {
                     Ok(Ok(a2)) => a2,
-                    Ok(Err(e2)) => return Err(Error::from(format!("yt-dlp (検索) 実行失敗: {e2}"))),
+                    Ok(Err(e2)) => {
+                        return Err(Error::from(format!("yt-dlp (検索) 実行失敗: {e2}")));
+                    }
                     Err(_) => return Err(Error::from("yt-dlp (検索) がタイムアウトしました")),
                 };
                 return Ok(Input::Live(LiveInput::Raw(audio2), Some(Box::new(ytdl2))));

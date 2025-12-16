@@ -11,9 +11,9 @@ use crate::{
     },
 };
 use chrono::Utc;
-use poise::builtins::paginate;
 use dashmap::DashMap;
 use poise::CreateReply;
+use poise::builtins::paginate;
 use poise::serenity_prelude::{
     ButtonStyle, Colour, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
     CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage, GuildId, Message,
@@ -32,7 +32,7 @@ const SUCCESS: Colour = Colour::new(0x2ECC71);
 const WARNING: Colour = Colour::new(0xF1C40F);
 const DANGER: Colour = Colour::new(0xE74C3C);
 const CONTROL_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
-const MAX_PLAYLIST_ITEMS: usize = 200;
+const MAX_PLAYLIST_ITEMS: usize = 50;
 
 fn transition_flag(flags: &TransitionFlags, gid: GuildId) -> Arc<AtomicBool> {
     flags
@@ -133,10 +133,13 @@ pub(crate) fn track_embed(
     if let Some(tr) = tr {
         let track_title = tr.meta.title.as_deref().unwrap_or(&tr.url);
         let track_link = tr.meta.source_url.as_deref().unwrap_or(&tr.url);
-        let track_value =
-            truncate_embed_field_value(&format!("[{}]({})", track_title, track_link));
+        let track_value = truncate_embed_field_value(&format!("[{}]({})", track_title, track_link));
         embed = embed.field("Track", track_value, false);
-        embed = embed.field("Length", truncate_embed_field_value(&format_duration(tr.meta.duration)), true);
+        embed = embed.field(
+            "Length",
+            truncate_embed_field_value(&format_duration(tr.meta.duration)),
+            true,
+        );
         embed = embed.field(
             "Requested by",
             truncate_embed_field_value(&format!("<@{}>", tr.requested_by)),
@@ -179,6 +182,7 @@ pub(crate) fn control_components(state: PlayMode) -> Vec<CreateActionRow> {
 
 /// 再生を止め、キューと状態をリセットする。
 async fn stop_playback(ctx: &Context<'_>, gid: GuildId) -> Result<(), Error> {
+    tracing::info!(guild = %gid, "stop playback requested");
     let manager = songbird::get(ctx.serenity_context())
         .await
         .ok_or("Songbird 未初期化")?;
@@ -209,11 +213,13 @@ async fn send_control_message(
     embed: CreateEmbed,
     controls: PlayMode,
 ) -> Result<Message, Error> {
+    tracing::debug!(guild = %gid, controls = ?controls, "sending control message");
     let reply = CreateReply::default()
         .embed(embed)
         .components(control_components(controls));
     let handle = ctx.send(reply).await?;
     let msg = handle.message().await?.into_owned();
+    tracing::debug!(guild = %gid, channel = %msg.channel_id, message = %msg.id, "control message sent");
     ctx.data().now_playing.insert(gid, (msg.channel_id, msg.id));
     Ok(msg)
 }
@@ -265,15 +271,18 @@ async fn handle_controls(
         }
 
         let timeout = deadline.saturating_duration_since(now);
-        let Some(interaction) = msg
-            .await_component_interaction(ctx)
-            .timeout(timeout)
-            .await
-        else {
+        let Some(interaction) = msg.await_component_interaction(ctx).timeout(timeout).await else {
             break;
         };
 
         if interaction.user.id != ctx.author().id {
+            tracing::debug!(
+                guild = %gid,
+                user = %interaction.user.id,
+                owner = %ctx.author().id,
+                custom_id = %interaction.data.custom_id,
+                "ignored control interaction from non-owner"
+            );
             respond_ephemeral(&ctx, &interaction, "この操作はコマンド実行者のみ可能です").await;
             continue;
         }
@@ -282,6 +291,7 @@ async fn handle_controls(
         deadline = Instant::now() + CONTROL_IDLE_TIMEOUT;
 
         let custom = interaction.data.custom_id.as_str();
+        tracing::debug!(guild = %gid, user = %interaction.user.id, custom_id = %custom, "control interaction");
         match custom {
             "music_stop" => {
                 stop_playback(ctx, gid).await?;
@@ -295,6 +305,7 @@ async fn handle_controls(
                 break;
             }
             "music_pause" => {
+                tracing::info!(guild = %gid, "pause requested");
                 if let Some(entry) = playing.get(&gid) {
                     let (handle, req) = entry.value();
                     if matches!(
@@ -319,6 +330,7 @@ async fn handle_controls(
                 }
             }
             "music_resume" => {
+                tracing::info!(guild = %gid, "resume requested");
                 if let Some(entry) = playing.get(&gid) {
                     let (handle, req) = entry.value();
                     if matches!(
@@ -343,6 +355,7 @@ async fn handle_controls(
                 }
             }
             "music_skip" => {
+                tracing::info!(guild = %gid, "skip requested");
                 // まずは即時に表示を更新して「Interaction failed」を防ぐ（重い処理は後段）。
                 let embed = track_embed("⏳ 次の曲を準備しています…", None, None, ACCENT);
                 update_message(&ctx, &interaction, embed, Vec::new()).await;
@@ -378,6 +391,13 @@ async fn handle_controls(
                 .await?;
 
                 if let Some(started_req) = res.started {
+                    tracing::info!(
+                        guild = %gid,
+                        skipped = res.skipped,
+                        remaining = res.remaining,
+                        url = %started_req.url,
+                        "skip started next track"
+                    );
                     let info = if res.skipped > 0 {
                         format!(
                             "再生失敗 {} 件をスキップ / キュー残り {} 件",
@@ -386,8 +406,12 @@ async fn handle_controls(
                     } else {
                         format!("キュー残り {} 件", res.remaining)
                     };
-                    let embed =
-                        track_embed("⏭ 次の曲を再生しました", Some(&started_req), Some(info), SUCCESS);
+                    let embed = track_embed(
+                        "⏭ 次の曲を再生しました",
+                        Some(&started_req),
+                        Some(info),
+                        SUCCESS,
+                    );
                     let _ = msg
                         .edit(
                             ctx.serenity_context(),
@@ -399,6 +423,12 @@ async fn handle_controls(
                     continue;
                 }
 
+                tracing::warn!(
+                    guild = %gid,
+                    remaining = res.remaining,
+                    last_error = ?res.last_error,
+                    "skip failed to start next track"
+                );
                 let detail = res
                     .last_error
                     .or_else(|| Some(format!("次の曲がありません (残り {} 件)", res.remaining)));
@@ -406,7 +436,9 @@ async fn handle_controls(
                 let _ = msg
                     .edit(
                         ctx.serenity_context(),
-                        EditMessage::new().embeds(vec![embed]).components(Vec::new()),
+                        EditMessage::new()
+                            .embeds(vec![embed])
+                            .components(Vec::new()),
                     )
                     .await;
                 break;
@@ -435,8 +467,14 @@ pub async fn play(
     query: Option<String>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
+    tracing::debug!(
+        author = %ctx.author().id,
+        has_query = query.is_some(),
+        "play command invoked"
+    );
 
     let gid = ctx.guild_id().ok_or("サーバー内で実行してください")?;
+    tracing::info!(guild = %gid, author = %ctx.author().id, "play command in guild");
     _join(&ctx, gid, None).await?;
     let call = songbird::get(ctx.serenity_context())
         .await
@@ -461,6 +499,7 @@ pub async fn play(
     };
 
     if query.is_none() && current_state == PlayMode::Pause {
+        tracing::info!(guild = %gid, "resume without query");
         if let Some(h) = current_handle {
             let _ = h.play();
             let embed = track_embed(
@@ -485,9 +524,11 @@ pub async fn play(
 
     if let Some(q) = query {
         if playlist::is_youtube_playlist_url(&q) {
+            tracing::info!(guild = %gid, "expanding youtube playlist");
             ctx.defer().await?;
             match playlist::expand_youtube_playlist(&q, MAX_PLAYLIST_ITEMS).await {
                 Ok(urls) => {
+                    tracing::info!(guild = %gid, items = urls.len(), "playlist expanded");
                     let pages = playlist_pages(&urls, "プレイリスト展開結果");
                     let page_slices: Vec<&str> = pages.iter().map(String::as_str).collect();
 
@@ -511,6 +552,13 @@ pub async fn play(
                             let end = start + total.saturating_sub(1);
                             (start, end)
                         };
+                        tracing::info!(
+                            guild = %gid,
+                            added = total,
+                            start = position_start,
+                            end = position_end,
+                            "playlist enqueued while playing"
+                        );
 
                         let embed = track_embed(
                             "📃 プレイリストをキューに追加しました",
@@ -565,21 +613,21 @@ pub async fn play(
                                 );
                                 let msg =
                                     send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
-                                    handle_controls(
-                                        &ctx,
-                                        gid,
-                                        call.clone(),
-                                        queues.clone(),
-                                        playing.clone(),
-                                        msg,
-                                    )
-                                    .await?;
-                                    paginate(ctx, &page_slices).await?;
-                                    return Ok(());
-                                }
-                                Err(e) => {
-                                    let embed = track_embed(
-                                        "❌ 再生開始に失敗しました",
+                                handle_controls(
+                                    &ctx,
+                                    gid,
+                                    call.clone(),
+                                    queues.clone(),
+                                    playing.clone(),
+                                    msg,
+                                )
+                                .await?;
+                                paginate(ctx, &page_slices).await?;
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                let embed = track_embed(
+                                    "❌ 再生開始に失敗しました",
                                     None,
                                     Some(format!("{e}")),
                                     DANGER,
@@ -612,6 +660,7 @@ pub async fn play(
                         guard.push_back(req.clone());
                         pos
                     };
+                    tracing::info!(guild = %gid, position, url = %req.url, "added track to queue while playing");
                     let embed = track_embed(
                         "📥 キューに追加しました",
                         Some(&req),
@@ -643,7 +692,7 @@ pub async fn play(
                         ctx.data().now_playing.clone(),
                         req,
                     )
-                        .await
+                    .await
                     {
                         Ok((_handle, next_req)) => {
                             let embed = track_embed(
@@ -652,7 +701,8 @@ pub async fn play(
                                 Some("このトラックから再生を始めます。".into()),
                                 SUCCESS,
                             );
-                            let msg = send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
+                            let msg =
+                                send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
                             handle_controls(
                                 &ctx,
                                 gid,
@@ -715,7 +765,12 @@ pub async fn play(
             } else {
                 format!("キュー残り {} 件", res.remaining)
             };
-            let embed = track_embed("⏭ 次の曲を再生しました", Some(&started_req), Some(info), SUCCESS);
+            let embed = track_embed(
+                "⏭ 次の曲を再生しました",
+                Some(&started_req),
+                Some(info),
+                SUCCESS,
+            );
             let msg = send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
             handle_controls(
                 &ctx,

@@ -11,7 +11,9 @@ pub fn is_youtube_playlist_url(raw: &str) -> bool {
         return false;
     };
     let host = url.host_str().unwrap_or_default();
-    if !(host.contains("youtube.com") || host.contains("m.youtube.com") || host.contains("youtu.be"))
+    if !(host.contains("youtube.com")
+        || host.contains("m.youtube.com")
+        || host.contains("youtu.be"))
     {
         return false;
     }
@@ -72,7 +74,8 @@ pub async fn expand_youtube_playlist(raw: &str, limit: usize) -> Result<Vec<Stri
                 })
             })
             .or_else(|| {
-                entry.get("id")
+                entry
+                    .get("id")
                     .and_then(|v| v.as_str())
                     .map(|id| format!("https://www.youtube.com/watch?v={id}"))
             });
@@ -87,4 +90,3 @@ pub async fn expand_youtube_playlist(raw: &str, limit: usize) -> Result<Vec<Stri
     }
     Ok(out)
 }
-

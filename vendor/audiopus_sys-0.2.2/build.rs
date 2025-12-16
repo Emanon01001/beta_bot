@@ -172,6 +172,18 @@ fn main() {
         }
     }
 
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    {
+        // Choose debug CRT when building in debug/profile (tests use debug),
+        // otherwise choose the release CRT.
+        let profile = std::env::var("PROFILE").unwrap_or_default();
+        if profile == "debug" {
+            println!("cargo:rustc-link-lib=dylib=msvcrtd");
+        } else {
+            println!("cargo:rustc-link-lib=dylib=msvcrt");
+        }
+    }
+
     if let Some(installed_opus) = find_installed_opus() {
         link_opus(is_static, installed_opus);
     } else {

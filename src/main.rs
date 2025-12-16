@@ -12,7 +12,6 @@ use serde::Deserialize;
 use songbird::{Config, SerenityInit};
 use std::{path::PathBuf, process::Command, sync::OnceLock};
 use tokio::{sync::oneshot, task::JoinHandle};
-use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::{commands::create_commands::create_commands, models::data::Data, util::alias::Error};
 
@@ -70,13 +69,14 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
     let cli = Cli::parse();
     let path = cli.config;
 
+    tracing::info!(config = %path.display(), "loading config");
     let contents = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!(
-                "設定ファイルの読み込みに失敗しました: {} ({})\nデフォルトの空トークンで続行します。",
-                path.display(),
-                e
+            tracing::error!(
+                config = %path.display(),
+                error = %e,
+                "設定ファイルの読み込みに失敗しました (デフォルトの空トークンで続行)"
             );
             String::new()
         }
@@ -84,6 +84,7 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
 
     // 1) Try nested table form: [token] token="..." api_key="..."
     if let Ok(cfg) = toml::from_str::<ConfigFile>(&contents) {
+        tracing::info!("config parsed (nested table)");
         return cfg;
     }
 
@@ -105,6 +106,7 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
         let yt = toml::from_str::<MaybeYt>(&contents)
             .unwrap_or_default()
             .yt_dlp;
+        tracing::info!("config parsed (flat keys)");
         return ConfigFile {
             token: Tokens {
                 token: flat.token,
@@ -116,9 +118,9 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
 
     // 3) As a last resort, log and return empty tokens
     if !contents.is_empty() {
-        eprintln!(
-            "設定ファイルのパースに失敗しました: 無効な形式。デフォルトの空トークンで続行します。"
-        );
+        tracing::error!("設定ファイルのパースに失敗しました (無効な形式; デフォルトの空トークンで続行)");
+    } else {
+        tracing::warn!("設定ファイルが空です (デフォルトの空トークンで続行)");
     }
     ConfigFile {
         token: Tokens {
@@ -134,11 +136,27 @@ pub fn get_http_client() -> reqwest::Client {
     HTTP_CLIENT.get_or_init(reqwest::Client::new).clone()
 }
 
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_thread_names(true)
+        .with_line_number(true)
+        .with_file(true)
+        .try_init()
+        .ok();
+}
+
 async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
-    tracing_subscriber::FmtSubscriber::new().try_init().ok();
+    init_tracing();
+    tracing::info!("bot task started");
 
     // Windows 環境では yt-dlp の自己更新をバックグラウンドで実行（ブロッキング回避）
     if cfg!(target_os = "windows") {
+        tracing::debug!("spawning yt-dlp self-update task");
         let _ = tokio::task::spawn_blocking(|| {
             #[cfg(windows)]
             use std::os::windows::process::CommandExt;
@@ -171,8 +189,9 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
         .setup(|ctx, ready, framework| {
             Box::pin(async move {
                 // Ensure slash commands are registered on startup
+                tracing::info!(user = %ready.user.name, "registering global commands");
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                println!("{} is ready!", ready.user.name);
+                tracing::info!(user = %ready.user.name, "bot is ready");
                 Ok(Data::new())
             })
         })
@@ -187,6 +206,10 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
         | GatewayIntents::GUILD_VOICE_STATES
         | GatewayIntents::MESSAGE_CONTENT;
 
+    if GLOBAL_CONFIG.token.token.trim().is_empty() {
+        tracing::warn!("discord token is empty (check config); client creation will likely fail");
+    }
+
     // ── Client 起動 ──
     let mut client = match Client::builder(&GLOBAL_CONFIG.token.token, intents)
         .framework(framework)
@@ -195,7 +218,7 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
     {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Failed to create client: {e}");
+            tracing::error!(error = %e, "failed to create client");
             return;
         }
     };
@@ -204,19 +227,21 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
 
     let client_task = tokio::spawn(async move {
         if let Err(e) = client.start().await {
-            eprintln!("Bot error: {:?}", e);
+            tracing::error!(error = ?e, "client task error");
         }
     });
 
     tokio::select! {
         _ = shutdown_rx => {
-            println!("Shutdown signal received, shutting down...");
+            tracing::info!("shutdown signal received; shutting down shards");
             shard_manager.shutdown_all().await;
         }
         _ = client_task => {
-            println!("Client task finished.");
+            tracing::warn!("client task finished");
         }
     }
+
+    tracing::info!("bot task finished");
 }
 
 #[tokio::main]
@@ -231,12 +256,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bot 実行
     let handle: JoinHandle<()> = tokio::spawn(run_bot(stop_rx));
 
-    println!("Beta Bot running. Press Ctrl+C to stop.");
+    init_tracing();
+    tracing::info!("Beta Bot running. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;
 
     // 停止シグナル送信して終了を待機
+    tracing::info!("Ctrl+C received; sending shutdown");
     let _ = stop_tx.send(());
     let _ = handle.await;
 
+    tracing::info!("shutdown complete");
     Ok(())
 }

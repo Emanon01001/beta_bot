@@ -22,8 +22,8 @@ use std::{
 use url::Url;
 
 const PAGE_SIZE: usize = 10;
-const MAX_PLAYLIST_ITEMS: usize = 200;
-const PREFETCH_METADATA_MAX_ITEMS: usize = 200;
+const MAX_PLAYLIST_ITEMS: usize = 50;
+const PREFETCH_METADATA_MAX_ITEMS: usize = 50;
 const UI_TIMEOUT: Duration = Duration::from_secs(300);
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -187,6 +187,9 @@ async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMeta
         return Ok(HashMap::new());
     }
 
+    let started = std::time::Instant::now();
+    tracing::debug!(items = urls.len(), "fetching yt-dlp metadata");
+
     let mut cmd = tokio::process::Command::new("yt-dlp");
     cmd.arg("--ignore-config")
         .arg("--no-warnings")
@@ -206,12 +209,18 @@ async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMeta
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!(
+            took_ms = started.elapsed().as_millis(),
+            stderr = %err.trim(),
+            "yt-dlp metadata command failed"
+        );
         return Err(Error::from(format!(
             "yt-dlp (metadata) が失敗しました: {}",
             err.trim()
         )));
     }
 
+    tracing::debug!(took_ms = started.elapsed().as_millis(), "yt-dlp metadata fetched");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut map = HashMap::new();
     for line in stdout.lines() {
@@ -232,7 +241,10 @@ async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMeta
 
         let mut meta = AuxMetadata::default();
         meta.source_url = Some(webpage_url.to_string());
-        meta.title = v.get("title").and_then(|x| x.as_str()).map(|s| s.to_string());
+        meta.title = v
+            .get("title")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
         meta.thumbnail = v
             .get("thumbnail")
             .and_then(|x| x.as_str())
@@ -240,7 +252,13 @@ async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMeta
         meta.duration = v
             .get("duration")
             .and_then(|x| x.as_f64())
-            .and_then(|d| if d.is_finite() && d > 0.0 { Some(d) } else { None })
+            .and_then(|d| {
+                if d.is_finite() && d > 0.0 {
+                    Some(d)
+                } else {
+                    None
+                }
+            })
             .map(Duration::from_secs_f64);
 
         map.insert(key, meta);
@@ -294,11 +312,7 @@ async fn prefetch_queue_metadata(
         if tr.meta.title.as_ref().is_some_and(|t| !t.trim().is_empty()) {
             continue;
         }
-        let key_src = tr
-            .meta
-            .source_url
-            .as_deref()
-            .unwrap_or(tr.url.as_str());
+        let key_src = tr.meta.source_url.as_deref().unwrap_or(tr.url.as_str());
         let Some(key) = normalize_youtube_key(key_src) else {
             continue;
         };
@@ -347,16 +361,16 @@ async fn ensure_page_metadata(
     let total = queue.len();
     let end = end.min(total);
     for idx in start..end {
-        let Some(tr) = queue.queue.get_mut(idx) else { continue };
+        let Some(tr) = queue.queue.get_mut(idx) else {
+            continue;
+        };
         if tr.meta.title.as_ref().is_some_and(|t| !t.trim().is_empty()) {
             continue;
         }
-        let key_src = tr
-            .meta
-            .source_url
-            .as_deref()
-            .unwrap_or(tr.url.as_str());
-        let Some(key) = normalize_youtube_key(key_src) else { continue };
+        let key_src = tr.meta.source_url.as_deref().unwrap_or(tr.url.as_str());
+        let Some(key) = normalize_youtube_key(key_src) else {
+            continue;
+        };
         if let Some(meta) = fetched.get(&key) {
             tr.meta = meta.clone();
         }
@@ -390,12 +404,20 @@ pub async fn queue(
     let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     let queues = ctx.data().queues.clone();
     let owner_id = ctx.author().id;
+    tracing::info!(
+        guild = %guild_id,
+        author = %owner_id,
+        has_query = query.is_some(),
+        "queue command invoked"
+    );
 
     if let Some(q) = query {
         if playlist::is_youtube_playlist_url(&q) {
+            tracing::info!(guild = %guild_id, "expanding youtube playlist (queue)");
             ctx.defer().await?;
             match playlist::expand_youtube_playlist(&q, MAX_PLAYLIST_ITEMS).await {
                 Ok(urls) => {
+                    tracing::info!(guild = %guild_id, items = urls.len(), "playlist expanded (queue)");
                     let reqs = urls
                         .iter()
                         .cloned()
@@ -408,6 +430,7 @@ pub async fn queue(
                             guard.push_back(r);
                         }
                     }
+                    tracing::info!(guild = %guild_id, added = total, "playlist enqueued");
 
                     ctx.say(format!("📃 プレイリストをキューに追加しました ({total}件)"))
                         .await?;
@@ -417,20 +440,24 @@ pub async fn queue(
                     poise::builtins::paginate(ctx, &slices).await?;
                 }
                 Err(e) => {
-                    ctx.say(format!("❌ プレイリスト展開に失敗しました: {e}")).await?;
+                    ctx.say(format!("❌ プレイリスト展開に失敗しました: {e}"))
+                        .await?;
                 }
             }
             return Ok(());
         }
 
         ctx.defer().await?;
+        tracing::info!(guild = %guild_id, "adding single track to queue");
         match TrackRequest::from_url(q, ctx.author().id).await {
             Ok(req) => {
                 queues.entry(guild_id).or_default().push_back(req.clone());
+                tracing::info!(guild = %guild_id, url = %req.url, "enqueued track");
                 let title = truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
                 ctx.say(format!("✅ キューに追加しました: {title}")).await?;
             }
             Err(e) => {
+                tracing::warn!(guild = %guild_id, error = %e, "failed to create track request");
                 ctx.say(format!("❌ 追加に失敗しました: {e}")).await?;
             }
         }
@@ -520,7 +547,10 @@ pub async fn queue(
 
         let Some(interaction) = interaction else {
             let _ = msg
-                .edit(ctx.serenity_context(), EditMessage::default().components(Vec::new()))
+                .edit(
+                    ctx.serenity_context(),
+                    EditMessage::default().components(Vec::new()),
+                )
                 .await;
             break;
         };
@@ -533,7 +563,9 @@ pub async fn queue(
                     .content("この操作はコマンド実行者のみ可能です")
                     .ephemeral(true),
             );
-            let _ = interaction.create_response(ctx.serenity_context(), builder).await;
+            let _ = interaction
+                .create_response(ctx.serenity_context(), builder)
+                .await;
             continue;
         }
 
@@ -543,7 +575,9 @@ pub async fn queue(
                     .embeds(vec![queue_embed(&list, page)])
                     .components(Vec::new()),
             );
-            let _ = interaction.create_response(ctx.serenity_context(), builder).await;
+            let _ = interaction
+                .create_response(ctx.serenity_context(), builder)
+                .await;
             let _ = msg
                 .edit(
                     ctx.serenity_context(),
@@ -590,7 +624,11 @@ pub async fn queue(
                 .embeds(vec![queue_embed(&list, page)])
                 .components(queue_components(page, pages)),
         );
-        if interaction.create_response(ctx.serenity_context(), builder).await.is_err() {
+        if interaction
+            .create_response(ctx.serenity_context(), builder)
+            .await
+            .is_err()
+        {
             let _ = msg
                 .edit(
                     ctx.serenity_context(),
@@ -636,7 +674,6 @@ pub async fn queue(
                 )
                 .await;
         });
-
     }
 
     Ok(())
