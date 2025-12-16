@@ -1,37 +1,58 @@
 # Beta Bot (Discord Music Bot)
 
-軽量な Discord 音楽ボットです。yt-dlp と songbird を使い、スラッシュ／プレフィックスコマンドとメッセージ内ボタンで再生・一時停止・スキップ・停止を操作できます。
+Discord 音楽ボットです。yt-dlp + songbird で音源を取得・再生し、スラッシュ／プレフィックスコマンドとメッセージ内ボタンで操作できます。
+
+## できること（ざっくり）
+- `/play` で「再生中パネル（ボタン付き）」を表示し、曲が変わっても自動で更新
+- `/queue` を見やすいページUIで表示（セレクトでページジャンプ、`<< < > >>`、`cancel`）
+- YouTube のプレイリストURLを展開してキューに追加（上限あり）
+- `/skip [offset]` で任意曲数のスキップ／巻き戻し（履歴ベース）
 
 ## 必要環境
 - Rust (stable)
-- yt-dlp が PATH にあること
-- Discord Bot Token（必須）と Google Gemini API キー（`/exec` 用、任意）
+- `yt-dlp` が PATH にあること
+- Discord Bot Token（必須）
+- Google Gemini API キー（`/exec` 用、任意）
 
 ## セットアップ
-1) `Setting.toml` を用意してトークンを設定してください（`token` と `api_key`）。このリポジトリに入っている値は差し替えてください。  
-2) 依存を取得: `cargo fetch` （または初回 `cargo run` 時に自動取得）  
-3) yt-dlp をインストール（例: `pip install -U yt-dlp` など）。
+1) `Setting.toml` を作成してトークンを設定してください（`Setting.toml` は `.gitignore` 済み）
 
-`Setting.toml` で `yt_dlp` セクションを追加すると、cookies や proxy、追加引数を渡せます（例は `src/main.rs` の `ConfigFile` 構造体を参照）。
+例:
+```toml
+token="YOUR_DISCORD_BOT_TOKEN"
+api_key="YOUR_GEMINI_API_KEY" # 任意
+
+# 任意: yt-dlp に渡す追加設定（使っているフィールドは実装に依存）
+#[yt_dlp]
+#cookies="cookies.txt"
+#extra_args=["--proxy", "http://..."]
+```
+
+2) 依存を取得: `cargo fetch`（または初回 `cargo run` 時に自動取得）
+3) yt-dlp をインストール（例: `pip install -U yt-dlp` など）
 
 ## 実行
 ```bash
 cargo run --release
-# 起動後に「Beta Bot running. Press Ctrl+C to stop.」が出れば OK
+```
+
+Windows で `audiopus_sys` などの C/CMake ビルドが失敗する場合、環境変数 `CMAKE_TOOLCHAIN_FILE` が Android NDK を指していることがあります。その場合は空にして実行してください:
+```bash
+cargo run --config "env.CMAKE_TOOLCHAIN_FILE=''"
 ```
 
 ## 主なコマンド
-- `/play <url|検索語>` … 再生開始。メッセージ内ボタンで⏸再開・⏭次へ・⏹停止ができます。
-- `/queue [url|検索語]` … 引数なしでキュー確認、指定するとキュー追加。
-- `/skip`, `/stop`, `/pause`, `/resume`
+- `/play <url|検索語>` … 再生開始（既に再生中ならキュー追加）。ボタンで一時停止/再開/次の曲/停止。
+- `/queue [url|検索語|プレイリストURL]` … 引数なしで表示、指定するとキュー追加。
+- `/skip [offset]` … `+N` 曲進む / `-N` 曲戻る（例: `/skip 5`, `/skip -1`）。省略時は `+1`。
+- `/stop`, `/pause`, `/resume`
 - `/join`, `/leave`
-- `/insert <url>` … キュー先頭に追加。
-- `/remove <index>` … キューから削除。
+- `/insert <url>` … キュー先頭に追加
+- `/remove <index>` … キューから削除
 - `/repeat <Off|Track|Queue>` / `/shuffle <true|false>`
-- `/search <query>` … yt-dlp 経由で検索しページ送り表示。
-- 補助: `/button_test`, `/pages`, `/exec`（Gemini API 実行例）
+- `/search <query>` … yt-dlp 経由で検索しページ送り表示
 
 ## メモ
-- ステージチャンネルで使う場合は bot に「話す」を付与し、手を挙げた bot を承認してください。ミュートや音量 0 になっていないかも確認してください。
-- ボタン操作は 3 分間有効です。タイムアウト後は再度コマンドを実行してください。
-
+- ボタン/セレクトは基本的に「コマンド実行者のみ」操作できます。
+- `/play` の再生中パネルは約 30 分、`/queue` のUIは約 5 分でタイムアウトします（タイムアウト後は再実行）。
+- ステージチャンネルでは bot に「話す」を付与し、手を挙げた bot を承認してください。
