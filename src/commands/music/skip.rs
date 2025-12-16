@@ -3,6 +3,7 @@ use crate::util::{
     play::{play_next_from_queue, play_track_req},
     types::TransitionFlags,
 };
+use poise::serenity_prelude::{Colour, EditMessage};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 fn transition_flag(flags: &TransitionFlags, gid: poise::serenity_prelude::GuildId) -> Arc<AtomicBool> {
@@ -34,6 +35,8 @@ pub async fn skip(
     let playing = ctx.data().playing.clone();
     let transition_flags = ctx.data().transition_flags.clone();
     let history = ctx.data().history.clone();
+    let http = ctx.serenity_context().http.clone();
+    let now_playing = ctx.data().now_playing.clone();
 
     // 手動skip中は TrackEndHandler の自動遷移を抑止する。
     let flag = transition_flag(&transition_flags, guild_id);
@@ -103,16 +106,37 @@ pub async fn skip(
             }
         }
 
-        let _ = play_track_req(
+        let (_handle, started_req) = play_track_req(
             guild_id,
             call.clone(),
             queues.clone(),
             playing.clone(),
             transition_flags,
             history,
+            http,
+            now_playing,
             target,
         )
         .await?;
+
+        if let Some((channel_id, message_id)) = ctx.data().now_playing.get(&guild_id).map(|e| *e.value()) {
+            let remaining = queues.get(&guild_id).map(|q| q.len()).unwrap_or(0);
+            let embed = crate::commands::music::play::track_embed(
+                "🎵 再生中",
+                Some(&started_req),
+                Some(format!("キュー残り {remaining} 件")),
+                Colour::new(0x5865F2),
+            );
+            let components =
+                crate::commands::music::play::control_components(songbird::tracks::PlayMode::Play);
+            let _ = channel_id
+                .edit_message(
+                    &ctx.serenity_context().http,
+                    message_id,
+                    EditMessage::new().embeds(vec![embed]).components(components),
+                )
+                .await;
+        }
 
         ctx.say(format!("⏮️ {k} 曲戻りました")).await?;
         return Ok(());
@@ -139,11 +163,34 @@ pub async fn skip(
         playing.clone(),
         transition_flags,
         history,
+        ctx.serenity_context().http.clone(),
+        ctx.data().now_playing.clone(),
         3,
     )
     .await?;
 
-    if res.started.is_some() {
+    if let Some(started) = res.started {
+        if let Some((channel_id, message_id)) =
+            ctx.data().now_playing.get(&guild_id).map(|e| *e.value())
+        {
+            let remaining = queues.get(&guild_id).map(|q| q.len()).unwrap_or(0);
+            let embed = crate::commands::music::play::track_embed(
+                "🎵 再生中",
+                Some(&started),
+                Some(format!("キュー残り {remaining} 件")),
+                Colour::new(0x5865F2),
+            );
+            let components =
+                crate::commands::music::play::control_components(songbird::tracks::PlayMode::Play);
+            let _ = channel_id
+                .edit_message(
+                    &ctx.serenity_context().http,
+                    message_id,
+                    EditMessage::new().embeds(vec![embed]).components(components),
+                )
+                .await;
+        }
+
         let msg = if dropped > 0 {
             format!("⏭️ {dropped} 件スキップして次の曲を再生しました")
         } else {

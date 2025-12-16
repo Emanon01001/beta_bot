@@ -5,7 +5,7 @@ use poise::serenity_prelude::GuildId;
 
 use crate::util::{
     queue::MusicQueue,
-    types::{HistoryMap, PlayingMap, TransitionFlags},
+    types::{HistoryMap, NowPlayingMap, PlayingMap, TransitionFlags},
 };
 
 pub struct Data {
@@ -13,6 +13,7 @@ pub struct Data {
     pub playing: PlayingMap,
     pub transition_flags: TransitionFlags,
     pub history: HistoryMap,
+    pub now_playing: NowPlayingMap,
 }
 
 impl Data {
@@ -22,6 +23,7 @@ impl Data {
             playing: Arc::new(DashMap::new()),
             transition_flags: Arc::new(DashMap::new()),
             history: Arc::new(DashMap::new()),
+            now_playing: Arc::new(DashMap::new()),
         }
     }
 }

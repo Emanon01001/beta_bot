@@ -19,7 +19,6 @@ pub fn create_commands()
         commands::music::search::search(),
         commands::music::remove::remove(),
         commands::test::button_test(),
-        commands::test::exec(),
         commands::test::pages(),
         commands::utils::capstone::capstone(),
         commands::utils::capstone::capinfo(),

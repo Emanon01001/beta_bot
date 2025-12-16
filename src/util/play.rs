@@ -20,7 +20,7 @@ use crate::{
     util::{
         queue::MusicQueue,
         track::TrackRequest,
-        types::{HistoryMap, PlayingMap, TransitionFlags},
+        types::{HistoryMap, NowPlayingMap, PlayingMap, TransitionFlags},
         ytdlp::{cookies_args, extra_args_from_config},
     },
 };
@@ -40,6 +40,8 @@ pub async fn play_track_req(
     playing: PlayingMap,
     transition_flags: TransitionFlags,
     history: HistoryMap,
+    http: Arc<poise::serenity_prelude::Http>,
+    now_playing: NowPlayingMap,
     tr: TrackRequest,
 ) -> Result<(TrackHandle, TrackRequest), Error> {
     tracing::info!(guild = %gid, url = %tr.url, "Play request");
@@ -50,6 +52,8 @@ pub async fn play_track_req(
         playing: playing.clone(),
         transition_flags,
         history: history.clone(),
+        http,
+        now_playing,
     };
 
     let (h, req) = play_track(call, tr, Some(handler)).await?;
@@ -79,6 +83,8 @@ pub async fn play_next_from_queue(
     playing: PlayingMap,
     transition_flags: TransitionFlags,
     history: HistoryMap,
+    http: Arc<poise::serenity_prelude::Http>,
+    now_playing: NowPlayingMap,
     max_attempts: usize,
 ) -> Result<PlayNextResult, Error> {
     let mut skipped = 0usize;
@@ -111,6 +117,8 @@ pub async fn play_next_from_queue(
             playing.clone(),
             transition_flags.clone(),
             history.clone(),
+            http.clone(),
+            now_playing.clone(),
             req,
         )
         .await

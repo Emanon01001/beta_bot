@@ -115,7 +115,7 @@ fn youtube_thumbnail(url: &str) -> Option<String> {
 }
 
 /// 曲情報を Embed に整形する（タイトル/リンク/長さ/リクエスト者/サムネイル）。
-fn track_embed(
+pub(crate) fn track_embed(
     title: &str,
     tr: Option<&TrackRequest>,
     note: Option<String>,
@@ -156,7 +156,7 @@ fn track_embed(
 }
 
 /// 再生ステートに合わせてボタン行を生成する。
-fn control_components(state: PlayMode) -> Vec<CreateActionRow> {
+pub(crate) fn control_components(state: PlayMode) -> Vec<CreateActionRow> {
     let is_playing = matches!(state, PlayMode::Play);
     let is_paused = matches!(state, PlayMode::Pause);
     vec![CreateActionRow::Buttons(vec![
@@ -198,12 +198,14 @@ async fn stop_playback(ctx: &Context<'_>, gid: GuildId) -> Result<(), Error> {
     ctx.data().queues.remove(&gid);
     ctx.data().playing.remove(&gid);
     ctx.data().history.remove(&gid);
+    ctx.data().now_playing.remove(&gid);
     Ok(())
 }
 
 /// Embed + ボタン付きのコントロールメッセージを送信する。
 async fn send_control_message(
     ctx: &Context<'_>,
+    gid: GuildId,
     embed: CreateEmbed,
     controls: PlayMode,
 ) -> Result<Message, Error> {
@@ -211,7 +213,9 @@ async fn send_control_message(
         .embed(embed)
         .components(control_components(controls));
     let handle = ctx.send(reply).await?;
-    Ok(handle.message().await?.into_owned())
+    let msg = handle.message().await?.into_owned();
+    ctx.data().now_playing.insert(gid, (msg.channel_id, msg.id));
+    Ok(msg)
 }
 
 /// 既存メッセージを Update として書き換える。
@@ -367,6 +371,8 @@ async fn handle_controls(
                     playing.clone(),
                     ctx.data().transition_flags.clone(),
                     ctx.data().history.clone(),
+                    ctx.serenity_context().http.clone(),
+                    ctx.data().now_playing.clone(),
                     3,
                 )
                 .await?;
@@ -463,7 +469,7 @@ pub async fn play(
                 Some("一時停止中のトラックを続きから再生します。".into()),
                 SUCCESS,
             );
-            let msg = send_control_message(&ctx, embed, PlayMode::Play).await?;
+            let msg = send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
             handle_controls(
                 &ctx,
                 gid,
@@ -514,7 +520,7 @@ pub async fn play(
                             )),
                             ACCENT,
                         );
-                        let msg = send_control_message(&ctx, embed, current_state).await?;
+                        let msg = send_control_message(&ctx, gid, embed, current_state).await?;
                         handle_controls(
                             &ctx,
                             gid,
@@ -541,6 +547,8 @@ pub async fn play(
                             playing.clone(),
                             ctx.data().transition_flags.clone(),
                             ctx.data().history.clone(),
+                            ctx.serenity_context().http.clone(),
+                            ctx.data().now_playing.clone(),
                             first,
                         )
                         .await
@@ -556,7 +564,7 @@ pub async fn play(
                                     SUCCESS,
                                 );
                                 let msg =
-                                    send_control_message(&ctx, embed, PlayMode::Play).await?;
+                                    send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
                                     handle_controls(
                                         &ctx,
                                         gid,
@@ -612,7 +620,7 @@ pub async fn play(
                         )),
                         ACCENT,
                     );
-                    let msg = send_control_message(&ctx, embed, current_state).await?;
+                    let msg = send_control_message(&ctx, gid, embed, current_state).await?;
                     handle_controls(
                         &ctx,
                         gid,
@@ -631,6 +639,8 @@ pub async fn play(
                         playing.clone(),
                         ctx.data().transition_flags.clone(),
                         ctx.data().history.clone(),
+                        ctx.serenity_context().http.clone(),
+                        ctx.data().now_playing.clone(),
                         req,
                     )
                         .await
@@ -642,7 +652,7 @@ pub async fn play(
                                 Some("このトラックから再生を始めます。".into()),
                                 SUCCESS,
                             );
-                            let msg = send_control_message(&ctx, embed, PlayMode::Play).await?;
+                            let msg = send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
                             handle_controls(
                                 &ctx,
                                 gid,
@@ -690,6 +700,8 @@ pub async fn play(
             playing.clone(),
             ctx.data().transition_flags.clone(),
             ctx.data().history.clone(),
+            ctx.serenity_context().http.clone(),
+            ctx.data().now_playing.clone(),
             3,
         )
         .await?;
@@ -704,7 +716,7 @@ pub async fn play(
                 format!("キュー残り {} 件", res.remaining)
             };
             let embed = track_embed("⏭ 次の曲を再生しました", Some(&started_req), Some(info), SUCCESS);
-            let msg = send_control_message(&ctx, embed, PlayMode::Play).await?;
+            let msg = send_control_message(&ctx, gid, embed, PlayMode::Play).await?;
             handle_controls(
                 &ctx,
                 gid,
@@ -733,7 +745,7 @@ pub async fn play(
         Some("新しい曲を再生するにはクエリを指定してください。".into()),
         ACCENT,
     );
-    let msg = send_control_message(&ctx, embed, current_state).await?;
+    let msg = send_control_message(&ctx, gid, embed, current_state).await?;
     handle_controls(
         &ctx,
         gid,

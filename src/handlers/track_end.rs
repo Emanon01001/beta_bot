@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
-use poise::serenity_prelude::{GuildId, async_trait};
+use poise::serenity_prelude::{async_trait, Colour, EditMessage, GuildId, Http};
 use songbird::{Call, Event, EventContext, EventHandler};
 
 use tokio::sync::Mutex;
@@ -12,7 +12,7 @@ use crate::util::{
     queue::MusicQueue,
     repeat::RepeatMode,
     track::TrackRequest,
-    types::{HistoryMap, PlayingMap, TransitionFlags},
+    types::{HistoryMap, NowPlayingMap, PlayingMap, TransitionFlags},
 };
 
 #[derive(Clone)]
@@ -23,6 +23,8 @@ pub struct TrackEndHandler {
     pub playing: PlayingMap,
     pub transition_flags: TransitionFlags,
     pub history: HistoryMap,
+    pub http: Arc<Http>,
+    pub now_playing: NowPlayingMap,
 }
 
 #[async_trait]
@@ -81,11 +83,35 @@ impl EventHandler for TrackEndHandler {
                 self.playing.clone(),
                 self.transition_flags.clone(),
                 self.history.clone(),
+                self.http.clone(),
+                self.now_playing.clone(),
                 req,
             )
             .await
             {
-                Ok((_handle, _r)) => break,
+                Ok((_handle, started_req)) => {
+                    if let Some((channel_id, message_id)) = self.now_playing.get(&self.guild_id).map(|e| *e.value()) {
+                        let remaining = self.queues.get(&self.guild_id).map(|q| q.len()).unwrap_or(0);
+                        let note = Some(format!("キュー残り {remaining} 件"));
+                        let embed = crate::commands::music::play::track_embed(
+                            "🎵 再生中",
+                            Some(&started_req),
+                            note,
+                            Colour::new(0x5865F2),
+                        );
+                        let components = crate::commands::music::play::control_components(
+                            songbird::tracks::PlayMode::Play,
+                        );
+                        let _ = channel_id
+                            .edit_message(
+                                &self.http,
+                                message_id,
+                                EditMessage::new().embeds(vec![embed]).components(components),
+                            )
+                            .await;
+                    }
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!(guild = %self.guild_id, error = %e, "次曲の再生に失敗。次を試行します");
                     tries += 1;
