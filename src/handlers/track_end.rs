@@ -101,7 +101,7 @@ impl EventHandler for TrackEndHandler {
                             "🎵 再生中",
                             Some(&started_req),
                             note,
-                            Colour::new(0x5865F2),
+                            Colour::new(0x2ECC71),
                         );
                         let components = crate::commands::music::play::control_components(
                             songbird::tracks::PlayMode::Play,
