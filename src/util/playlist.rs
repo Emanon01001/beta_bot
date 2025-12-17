@@ -34,7 +34,7 @@ pub async fn expand_youtube_playlist(raw: &str, limit: usize) -> Result<Vec<Stri
     cmd.args(extra_args_from_config());
     cmd.arg(raw);
 
-    let output = tokio::time::timeout(Duration::from_secs(30), cmd.output())
+    let output = tokio::time::timeout(Duration::from_secs(60), cmd.output())
         .await
         .map_err(|_| Error::from("yt-dlp (playlist) がタイムアウトしました"))?
         .map_err(|e| Error::from(format!("yt-dlp (playlist) 実行失敗: {e}")))?;
