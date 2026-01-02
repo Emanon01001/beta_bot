@@ -21,11 +21,6 @@ impl Default for MusicQueue {
 
 // MusicQueueのメソッドを実装
 impl MusicQueue {
-    /// 再生キューと各種フラグ（shuffle/repeat/volume）をまとめて保持する。
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 末尾に追加（一般ユーザー用）
     pub fn push_back(&mut self, req: TrackRequest) {
         self.queue.push_back(req);
@@ -54,11 +49,6 @@ impl MusicQueue {
     pub fn iter(&self) -> impl Iterator<Item = &TrackRequest> {
         self.queue.iter()
     }
-
-    /// コピー用途（UIなどで所有権必要）
-    pub fn to_vec(&self) -> Vec<TrackRequest> {
-        self.queue.iter().cloned().collect()
-    }
     pub fn remove_at(&mut self, idx: usize) -> Option<TrackRequest> {
         if idx < self.queue.len() {
             self.queue.remove(idx)
@@ -69,27 +59,6 @@ impl MusicQueue {
     /// キューの長さ
     pub fn len(&self) -> usize {
         self.queue.len()
-    }
-    // キューが空かどうか
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        self.queue.clear();
-    }
-
-    //volume get
-    pub fn volume(&self) -> f32 {
-        self.config.volume
-    }
-    //volume set
-    pub fn set_volume(&mut self, v: f32) {
-        self.config.volume = v;
-    }
-
-    pub fn repeat_mode(&self) -> RepeatMode {
-        self.config.repeat_mode
     }
     pub fn set_repeat_mode(&mut self, mode: RepeatMode) {
         self.config.repeat_mode = mode;

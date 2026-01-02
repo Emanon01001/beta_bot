@@ -4,7 +4,6 @@ use crate::util::repeat::RepeatMode;
 pub struct MusicConfig {
     pub repeat_mode: RepeatMode,
     pub shuffle: bool,
-    pub volume: f32,
 }
 
 impl MusicConfig {
@@ -12,8 +11,6 @@ impl MusicConfig {
         Self {
             repeat_mode: RepeatMode::Off,
             shuffle: false,
-            // デフォルトの音量は 0.7 (70%)
-            volume: 0.7,
         }
     }
 }

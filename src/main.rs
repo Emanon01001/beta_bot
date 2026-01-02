@@ -118,7 +118,9 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
 
     // 3) As a last resort, log and return empty tokens
     if !contents.is_empty() {
-        tracing::error!("設定ファイルのパースに失敗しました (無効な形式; デフォルトの空トークンで続行)");
+        tracing::error!(
+            "設定ファイルのパースに失敗しました (無効な形式; デフォルトの空トークンで続行)"
+        );
     } else {
         tracing::warn!("設定ファイルが空です (デフォルトの空トークンで続行)");
     }
@@ -256,7 +258,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bot 実行
     let handle: JoinHandle<()> = tokio::spawn(run_bot(stop_rx));
 
-    init_tracing();
     tracing::info!("Beta Bot running. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;
 

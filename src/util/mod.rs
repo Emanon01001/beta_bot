@@ -1,6 +1,7 @@
 pub mod alias;
 pub mod capstone;
 pub mod config;
+pub mod music_ui;
 pub mod play;
 pub mod playlist;
 pub mod queue;

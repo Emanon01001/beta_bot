@@ -2,9 +2,7 @@ use poise::serenity_prelude::{ButtonStyle, Colour, CreateActionRow, CreateButton
 use serde_json::json;
 use std::time::Duration;
 
-use crate::
-    util::alias::{Context, Error}
-;
+use crate::util::alias::{Context, Error};
 
 #[poise::command(prefix_command)]
 pub async fn button_test(ctx: Context<'_>) -> Result<(), Error> {

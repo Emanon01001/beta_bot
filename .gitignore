@@ -3,5 +3,6 @@
 .vscode/
 .cargo
 Setting.toml
+cookies.txt
 *.exe
 *.wav

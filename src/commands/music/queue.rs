@@ -220,7 +220,10 @@ async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMeta
         )));
     }
 
-    tracing::debug!(took_ms = started.elapsed().as_millis(), "yt-dlp metadata fetched");
+    tracing::debug!(
+        took_ms = started.elapsed().as_millis(),
+        "yt-dlp metadata fetched"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut map = HashMap::new();
     for line in stdout.lines() {

@@ -185,7 +185,10 @@ async fn request_chat_completion(prompt: &str) -> anyhow::Result<String> {
         .find_map(|choice| choice.message.and_then(|m| m.content))
         .ok_or_else(|| anyhow!("response did not contain a message content"))?;
 
-    tracing::debug!(took_ms = started.elapsed().as_millis(), "nano-gpt response parsed");
+    tracing::debug!(
+        took_ms = started.elapsed().as_millis(),
+        "nano-gpt response parsed"
+    );
     Ok(content)
 }
 

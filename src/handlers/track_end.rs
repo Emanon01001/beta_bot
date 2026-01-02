@@ -9,6 +9,7 @@ use songbird::{Call, Event, EventContext, EventHandler};
 use tokio::sync::Mutex;
 
 use crate::util::{
+    music_ui::{control_components, track_embed},
     queue::MusicQueue,
     repeat::RepeatMode,
     track::TrackRequest,
@@ -97,15 +98,13 @@ impl EventHandler for TrackEndHandler {
                             .map(|q| q.len())
                             .unwrap_or(0);
                         let note = Some(format!("キュー残り {remaining} 件"));
-                        let embed = crate::commands::music::play::track_embed(
+                        let embed = track_embed(
                             "🎵 再生中",
                             Some(&started_req),
                             note,
                             Colour::new(0x2ECC71),
                         );
-                        let components = crate::commands::music::play::control_components(
-                            songbird::tracks::PlayMode::Play,
-                        );
+                        let components = control_components(songbird::tracks::PlayMode::Play);
                         let _ = channel_id
                             .edit_message(
                                 &self.http,

@@ -1,5 +1,6 @@
 use crate::util::{
     alias::{Context, Error},
+    music_ui::{control_components, track_embed},
     play::{play_next_from_queue, play_track_req},
     types::TransitionFlags,
 };
@@ -128,14 +129,13 @@ pub async fn skip(
             ctx.data().now_playing.get(&guild_id).map(|e| *e.value())
         {
             let remaining = queues.get(&guild_id).map(|q| q.len()).unwrap_or(0);
-            let embed = crate::commands::music::play::track_embed(
+            let embed = track_embed(
                 "🎵 再生中",
                 Some(&started_req),
                 Some(format!("キュー残り {remaining} 件")),
                 Colour::new(0x5865F2),
             );
-            let components =
-                crate::commands::music::play::control_components(songbird::tracks::PlayMode::Play);
+            let components = control_components(songbird::tracks::PlayMode::Play);
             let _ = channel_id
                 .edit_message(
                     &ctx.serenity_context().http,
@@ -183,14 +183,13 @@ pub async fn skip(
             ctx.data().now_playing.get(&guild_id).map(|e| *e.value())
         {
             let remaining = queues.get(&guild_id).map(|q| q.len()).unwrap_or(0);
-            let embed = crate::commands::music::play::track_embed(
+            let embed = track_embed(
                 "🎵 再生中",
                 Some(&started),
                 Some(format!("キュー残り {remaining} 件")),
                 Colour::new(0x5865F2),
             );
-            let components =
-                crate::commands::music::play::control_components(songbird::tracks::PlayMode::Play);
+            let components = control_components(songbird::tracks::PlayMode::Play);
             let _ = channel_id
                 .edit_message(
                     &ctx.serenity_context().http,
