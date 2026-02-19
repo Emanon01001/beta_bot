@@ -4,6 +4,7 @@ use crate::{
     util::{
         alias::Context,
         lavalink_player::{current_play_mode, play_next_from_queue_lavalink},
+        music_ui::track_embed,
         playlist,
         queue::MusicQueue,
         track::{TrackMetadata, TrackRequest},
@@ -16,7 +17,7 @@ use lavalink_rs::{
 };
 use poise::CreateReply;
 use poise::serenity_prelude::{
-    ButtonStyle, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
+    ButtonStyle, Colour, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
     CreateInteractionResponse, CreateInteractionResponseMessage, CreateSelectMenu,
     CreateSelectMenuKind, CreateSelectMenuOption, EditMessage, GuildId,
 };
@@ -35,6 +36,9 @@ const PAGE_SIZE: usize = 10;
 const MAX_PLAYLIST_ITEMS: usize = 50;
 const PREFETCH_METADATA_MAX_ITEMS: usize = 50;
 const UI_TIMEOUT: Duration = Duration::from_secs(300);
+const ACCENT: Colour = Colour::new(0x5865F2);
+const SUCCESS: Colour = Colour::new(0x2ECC71);
+const DANGER: Colour = Colour::new(0xE74C3C);
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -485,15 +489,22 @@ pub async fn queue(
                     tracing::info!(guild = %guild_id, added = total, "playlist enqueued");
                     let started = try_autostart_from_queue(&ctx, guild_id).await;
                     if let Some(req) = started {
-                        let started_title =
-                            truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
-                        ctx.say(format!(
-                            "📃 プレイリストをキューに追加しました ({total}件) / 再生開始: {started_title}"
-                        ))
-                        .await?;
+                        let embed = track_embed(
+                            "🎶 プレイリストを追加して再生開始しました",
+                            Some(&req),
+                            Some(format!("{total} 件をキューに追加しました。")),
+                            SUCCESS,
+                        );
+                        ctx.send(CreateReply::default().embed(embed)).await?;
                     } else {
-                        ctx.say(format!("📃 プレイリストをキューに追加しました ({total}件)"))
-                            .await?;
+                        let preview = queues.get(&guild_id).and_then(|q| q.iter().next().cloned());
+                        let embed = track_embed(
+                            "📃 プレイリストをキューに追加しました",
+                            preview.as_ref(),
+                            Some(format!("{total} 件をキューに追加しました。")),
+                            ACCENT,
+                        );
+                        ctx.send(CreateReply::default().embed(embed)).await?;
                     }
 
                     let pages = pages_from_urls(&urls, "追加したトラック(URL一覧)");
@@ -501,8 +512,13 @@ pub async fn queue(
                     poise::builtins::paginate(ctx, &slices).await?;
                 }
                 Err(e) => {
-                    ctx.say(format!("❌ プレイリスト展開に失敗しました: {e}"))
-                        .await?;
+                    let embed = track_embed(
+                        "❌ プレイリスト展開に失敗しました",
+                        None,
+                        Some(e.to_string()),
+                        DANGER,
+                    );
+                    ctx.send(CreateReply::default().embed(embed)).await?;
                 }
             }
             return Ok(());
@@ -515,18 +531,22 @@ pub async fn queue(
                 queues.entry(guild_id).or_default().push_back(req.clone());
                 tracing::info!(guild = %guild_id, url = %req.url, "enqueued track");
                 if let Some(started) = try_autostart_from_queue(&ctx, guild_id).await {
-                    let title =
-                        truncate_chars(started.meta.title.as_deref().unwrap_or(&started.url), 120);
-                    ctx.say(format!("✅ キューに追加し、再生を開始しました: {title}"))
-                        .await?;
+                    let embed = track_embed(
+                        "✅ キューに追加し、再生を開始しました",
+                        Some(&started),
+                        None,
+                        SUCCESS,
+                    );
+                    ctx.send(CreateReply::default().embed(embed)).await?;
                 } else {
-                    let title = truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
-                    ctx.say(format!("✅ キューに追加しました: {title}")).await?;
+                    let embed = track_embed("✅ キューに追加しました", Some(&req), None, ACCENT);
+                    ctx.send(CreateReply::default().embed(embed)).await?;
                 }
             }
             Err(e) => {
                 tracing::warn!(guild = %guild_id, error = %e, "failed to create track request");
-                ctx.say(format!("❌ 追加に失敗しました: {e}")).await?;
+                let embed = track_embed("❌ 追加に失敗しました", None, Some(e.to_string()), DANGER);
+                ctx.send(CreateReply::default().embed(embed)).await?;
             }
         }
         return Ok(());
