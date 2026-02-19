@@ -1,15 +1,49 @@
-use crate::{
-    Error, get_http_client,
-    util::{
-        alias::Context,
-        ytdlp::{cookies_args, extra_args_from_config},
-    },
+use crate::{Error, util::alias::Context};
+use lavalink_rs::model::{
+    search::SearchEngines,
+    track::{Track as LavalinkTrack, TrackData, TrackLoadData},
 };
 use poise::builtins::paginate;
-use songbird::input::{AuxMetadata, YoutubeDl};
+use std::time::Duration;
 
 const PAGE_SIZE: usize = 5;
 const MAX_RESULTS: usize = 50;
+
+fn to_duration(length_ms: u64, is_stream: bool) -> Option<Duration> {
+    if is_stream || length_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(length_ms))
+    }
+}
+
+fn format_duration(dur: Option<Duration>) -> String {
+    dur.map(|d| format!("{:02}:{:02}", d.as_secs() / 60, d.as_secs() % 60))
+        .unwrap_or_else(|| "??:??".into())
+}
+
+fn track_url(track: &TrackData) -> String {
+    if let Some(uri) = track.info.uri.as_ref() {
+        return uri.clone();
+    }
+    if track.info.source_name.contains("youtube") {
+        return format!("https://youtu.be/{}", track.info.identifier);
+    }
+    "-".into()
+}
+
+fn first_tracks(load: LavalinkTrack) -> Result<Vec<TrackData>, Error> {
+    match load.data {
+        Some(TrackLoadData::Track(track)) => Ok(vec![track]),
+        Some(TrackLoadData::Search(tracks)) => Ok(tracks),
+        Some(TrackLoadData::Playlist(playlist)) => Ok(playlist.tracks),
+        Some(TrackLoadData::Error(err)) => Err(Error::from(format!(
+            "Lavalink search failed: {}",
+            err.message
+        ))),
+        None => Ok(Vec::new()),
+    }
+}
 
 #[poise::command(slash_command, guild_only)]
 pub async fn search(
@@ -19,25 +53,31 @@ pub async fn search(
     query: String,
     #[description = "取得件数(1-50)"] count: Option<usize>,
 ) -> Result<(), Error> {
-    // 1) 検索中フィードバック
     ctx.defer().await?;
+    let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
+    let lavalink = ctx
+        .data()
+        .lavalink
+        .clone()
+        .ok_or("Lavalink is not enabled in configuration")?;
 
-    // 2) 件数調整＆yt-dlp flat-playlist 実行
     let n = count.unwrap_or(5).clamp(1, MAX_RESULTS);
-    let mut ytdl = YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), query.clone())
-        .user_args(vec!["--flat-playlist".into(), "--dump-json".into()])
-        .user_args(cookies_args())
-        .user_args(extra_args_from_config());
-    let metas: Vec<AuxMetadata> = ytdl.search(Some(n)).await?.take(n).collect();
+    let identifier = SearchEngines::YouTube
+        .to_query(&query)
+        .map_err(|e| Error::from(format!("failed to build search query: {e}")))?;
+    let loaded = lavalink
+        .load_tracks(guild_id, &identifier)
+        .await
+        .map_err(|e| Error::from(format!("Lavalink search request failed: {e}")))?;
+    let mut tracks = first_tracks(loaded)?;
+    tracks.truncate(n);
 
-    // 3) 結果なしチェック
-    if metas.is_empty() {
+    if tracks.is_empty() {
         ctx.say("❌ 結果が見つかりませんでした").await?;
         return Ok(());
     }
 
-    // 4) テキストページを作成
-    let page_texts: Vec<String> = metas
+    let page_texts: Vec<String> = tracks
         .chunks(PAGE_SIZE)
         .enumerate()
         .map(|(pi, chunk)| {
@@ -47,14 +87,15 @@ pub async fn search(
                 pi + 1,
                 (n + PAGE_SIZE - 1) / PAGE_SIZE
             );
-            for (i, meta) in chunk.iter().enumerate() {
+            for (i, track) in chunk.iter().enumerate() {
                 let idx = pi * PAGE_SIZE + i + 1;
-                let title = meta.title.as_deref().unwrap_or("Unknown");
-                let url = meta.source_url.as_deref().unwrap_or("-");
-                let dur = meta
-                    .duration
-                    .map(|d| format!("{:02}:{:02}", d.as_secs() / 60, d.as_secs() % 60))
-                    .unwrap_or_else(|| "??:??".into());
+                let title = if track.info.title.trim().is_empty() {
+                    "Unknown"
+                } else {
+                    track.info.title.as_str()
+                };
+                let url = track_url(track);
+                let dur = format_duration(to_duration(track.info.length, track.info.is_stream));
                 txt.push_str(&format!(
                     "{}. **{}**\n▶️ {}\n⏱️ {}\n\n",
                     idx, title, url, dur
@@ -64,10 +105,7 @@ pub async fn search(
         })
         .collect();
 
-    // 5) Vec<String> → &[&str] に変換
     let page_slices: Vec<&str> = page_texts.iter().map(String::as_str).collect();
-
-    // 6) paginate を呼び出し
     paginate(ctx, &page_slices).await?;
 
     Ok(())

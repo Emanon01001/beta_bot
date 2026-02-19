@@ -1,13 +1,12 @@
 // Note: Do not force GUI subsystem in release. We manage console visibility
 // programmatically to avoid yt-dlp spawning its own console window on Windows.
 mod commands;
-mod handlers;
 mod models;
 mod util;
 
 use clap::Parser;
 use once_cell::sync::Lazy;
-use poise::serenity_prelude::{Client, GatewayIntents};
+use poise::serenity_prelude::{Client, FullEvent, GatewayIntents};
 use serde::Deserialize;
 use songbird::{Config, SerenityInit};
 use std::{path::PathBuf, process::Command, sync::OnceLock};
@@ -44,6 +43,8 @@ pub struct ConfigFile {
     pub token: Tokens,
     #[serde(default)]
     pub yt_dlp: Option<YtDlpSettings>,
+    #[serde(default)]
+    pub lavalink: Option<LavalinkSettings>,
 }
 
 #[derive(Deserialize, Default, Clone)]
@@ -62,6 +63,32 @@ pub struct YtDlpSettings {
     pub proxy: Option<String>,
     #[serde(default)]
     pub extra_args: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Default, Clone)]
+pub struct LavalinkSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub auto_start: bool,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub java_path: Option<String>,
+    #[serde(default)]
+    pub jar_path: Option<String>,
+    #[serde(default)]
+    pub startup_wait_ms: Option<u64>,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 /// グローバル設定を once で保持（読込失敗時は空トークンで継続）
@@ -102,17 +129,18 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
         struct MaybeYt {
             #[serde(default)]
             yt_dlp: Option<YtDlpSettings>,
+            #[serde(default)]
+            lavalink: Option<LavalinkSettings>,
         }
-        let yt = toml::from_str::<MaybeYt>(&contents)
-            .unwrap_or_default()
-            .yt_dlp;
+        let optional = toml::from_str::<MaybeYt>(&contents).unwrap_or_default();
         tracing::info!("config parsed (flat keys)");
         return ConfigFile {
             token: Tokens {
                 token: flat.token,
                 api_key: flat.api_key,
             },
-            yt_dlp: yt,
+            yt_dlp: optional.yt_dlp,
+            lavalink: optional.lavalink,
         };
     }
 
@@ -130,12 +158,61 @@ pub static GLOBAL_CONFIG: Lazy<ConfigFile> = Lazy::new(|| {
             api_key: String::new(),
         },
         yt_dlp: None,
+        lavalink: None,
     }
 });
 
 pub fn get_http_client() -> reqwest::Client {
     static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    HTTP_CLIENT.get_or_init(reqwest::Client::new).clone()
+    HTTP_CLIENT.get_or_init(build_http_client).clone()
+}
+
+fn build_http_client() -> reqwest::Client {
+    #[cfg(target_os = "android")]
+    {
+        let mut candidates = vec![];
+        for key in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"] {
+            if let Ok(path) = std::env::var(key) {
+                if !path.trim().is_empty() {
+                    candidates.push(path);
+                }
+            }
+        }
+        if let Ok(prefix) = std::env::var("PREFIX") {
+            candidates.push(format!("{prefix}/etc/tls/cert.pem"));
+        }
+        candidates.push("/data/data/com.termux/files/usr/etc/tls/cert.pem".to_string());
+        candidates.push("/etc/tls/cert.pem".to_string());
+        candidates.push("/etc/ssl/certs/ca-certificates.crt".to_string());
+
+        for path in candidates {
+            let Ok(bundle) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(certs) = reqwest::Certificate::from_pem_bundle(&bundle) else {
+                tracing::warn!(ca_bundle = %path, "failed to parse CA bundle; trying next path");
+                continue;
+            };
+            match reqwest::Client::builder().tls_certs_only(certs).build() {
+                Ok(client) => {
+                    tracing::info!(ca_bundle = %path, "initialized reqwest with explicit CA bundle");
+                    return client;
+                }
+                Err(err) => {
+                    tracing::warn!(ca_bundle = %path, error = %err, "failed to build reqwest client from CA bundle");
+                }
+            }
+        }
+
+        panic!(
+            "Failed to initialize reqwest TLS roots on Android. Install ca-certificates and set SSL_CERT_FILE (e.g. /data/data/com.termux/files/usr/etc/tls/cert.pem)."
+        );
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        reqwest::Client::new()
+    }
 }
 
 fn init_tracing() {
@@ -152,9 +229,60 @@ fn init_tracing() {
         .ok();
 }
 
+fn framework_event_handler<'a>(
+    _ctx: &'a poise::serenity_prelude::Context,
+    event: &'a FullEvent,
+    _framework: poise::FrameworkContext<'a, Data, Error>,
+    data: &'a Data,
+) -> poise::BoxFuture<'a, Result<(), Error>> {
+    Box::pin(async move {
+        let Some(lavalink) = data.lavalink.clone() else {
+            return Ok(());
+        };
+
+        match event {
+            FullEvent::VoiceServerUpdate { event } => {
+                if let Some(guild_id) = event.guild_id {
+                    lavalink.handle_voice_server_update(
+                        guild_id,
+                        event.token.clone(),
+                        event.endpoint.clone(),
+                    );
+                }
+            }
+            FullEvent::VoiceStateUpdate { new, .. } => {
+                if let Some(guild_id) = new.guild_id {
+                    lavalink.handle_voice_state_update(
+                        guild_id,
+                        new.channel_id,
+                        new.user_id,
+                        new.session_id.clone(),
+                    );
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    })
+}
+
 async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
     init_tracing();
     tracing::info!("bot task started");
+    let mut lavalink = crate::util::lavalink::spawn_lavalink(GLOBAL_CONFIG.lavalink.as_ref()).await;
+    if lavalink.is_some() {
+        let wait_ms = GLOBAL_CONFIG
+            .lavalink
+            .as_ref()
+            .and_then(|c| c.startup_wait_ms)
+            .unwrap_or(1500)
+            .clamp(0, 30_000);
+        if wait_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+        }
+    }
+    crate::util::lavalink::probe_lavalink(GLOBAL_CONFIG.lavalink.as_ref()).await;
 
     // Windows 環境では yt-dlp の自己更新をバックグラウンドで実行（ブロッキング回避）
     if cfg!(target_os = "windows") {
@@ -182,6 +310,7 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
     let framework = poise::Framework::<Data, Error>::builder()
         .options(poise::FrameworkOptions {
             commands: create_commands(),
+            event_handler: framework_event_handler,
             prefix_options: poise::PrefixFrameworkOptions {
                 prefix: Some("s!".into()),
                 ..Default::default()
@@ -194,7 +323,36 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
                 tracing::info!(user = %ready.user.name, "registering global commands");
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 tracing::info!(user = %ready.user.name, "bot is ready");
-                Ok(Data::new())
+                let mut data = Data::new();
+
+                if let Some(cfg) = GLOBAL_CONFIG.lavalink.as_ref().filter(|c| c.enabled) {
+                    let runtime = crate::util::lavalink_player::LavalinkRuntimeData {
+                        queues: data.queues.clone(),
+                        transition_flags: data.transition_flags.clone(),
+                        history: data.history.clone(),
+                        now_playing: data.now_playing.clone(),
+                        lavalink_playing: data.lavalink_playing.clone(),
+                        http: ctx.http.clone(),
+                    };
+
+                    match crate::util::lavalink_player::build_lavalink_client(
+                        cfg,
+                        ready.user.id,
+                        runtime,
+                    )
+                    .await
+                    {
+                        Ok(client) => {
+                            data.lavalink = Some(client);
+                            tracing::info!("Lavalink client initialized");
+                        }
+                        Err(err) => {
+                            tracing::warn!(error = %err, "failed to initialize Lavalink client; using Songbird playback path");
+                        }
+                    }
+                }
+
+                Ok(data)
             })
         })
         .build();
@@ -243,6 +401,8 @@ async fn run_bot(shutdown_rx: oneshot::Receiver<()>) {
         }
     }
 
+    crate::util::lavalink::shutdown_lavalink(lavalink.take()).await;
+
     tracing::info!("bot task finished");
 }
 
@@ -252,6 +412,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // yt-dlp console from appearing while keeping a shared hidden console.
     #[cfg(all(windows, not(debug_assertions)))]
     hide_console_window();
+
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls CryptoProvider");
+
     // Bot を起動し、Ctrl+C で停止するシンプルな実装に変更
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 

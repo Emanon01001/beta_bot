@@ -1,16 +1,26 @@
 use crate::{
     Error,
-    util::{alias::Context, playlist, queue::MusicQueue, track::TrackRequest, ytdlp},
+    commands::music::join::_join,
+    util::{
+        alias::Context,
+        lavalink_player::{current_play_mode, play_next_from_queue_lavalink},
+        playlist,
+        queue::MusicQueue,
+        track::{TrackMetadata, TrackRequest},
+    },
 };
 use dashmap::DashMap;
+use lavalink_rs::{
+    client::LavalinkClient,
+    model::track::{Track as LavalinkTrack, TrackData, TrackLoadData},
+};
 use poise::CreateReply;
 use poise::serenity_prelude::{
     ButtonStyle, ComponentInteraction, CreateActionRow, CreateButton, CreateEmbed,
     CreateInteractionResponse, CreateInteractionResponseMessage, CreateSelectMenu,
     CreateSelectMenuKind, CreateSelectMenuOption, EditMessage, GuildId,
 };
-use serde_json::Value;
-use songbird::input::AuxMetadata;
+use songbird::tracks::PlayMode;
 use std::{
     collections::HashMap,
     sync::{
@@ -71,6 +81,10 @@ fn youtube_video_id(raw: &str) -> Option<String> {
 
 fn normalize_youtube_key(url: &str) -> Option<String> {
     youtube_video_id(url).map(|id| format!("yt:{id}"))
+}
+
+fn metadata_lookup_key(url: &str) -> String {
+    normalize_youtube_key(url).unwrap_or_else(|| format!("url:{url}"))
 }
 
 fn short_url(tr: &TrackRequest) -> String {
@@ -182,98 +196,90 @@ fn queue_components(page: usize, pages: usize) -> Vec<CreateActionRow> {
     ]
 }
 
-async fn fetch_ytdlp_metadata(urls: &[String]) -> Result<HashMap<String, AuxMetadata>, Error> {
+fn first_track_from_load(load: LavalinkTrack) -> Option<TrackData> {
+    match load.data {
+        Some(TrackLoadData::Track(track)) => Some(track),
+        Some(TrackLoadData::Search(mut tracks)) => tracks.drain(..1).next(),
+        Some(TrackLoadData::Playlist(playlist)) => playlist.tracks.into_iter().next(),
+        Some(TrackLoadData::Error(err)) => {
+            tracing::warn!(message = %err.message, "lavalink metadata load returned error");
+            None
+        }
+        None => None,
+    }
+}
+
+fn metadata_from_track(input_url: &str, track: &TrackData) -> TrackMetadata {
+    let mut meta = TrackMetadata::default();
+    meta.source_url = track
+        .info
+        .uri
+        .clone()
+        .or_else(|| Some(input_url.to_string()));
+    if !track.info.title.trim().is_empty() {
+        meta.title = Some(track.info.title.clone());
+    }
+    if !track.info.author.trim().is_empty() {
+        meta.artist = Some(track.info.author.clone());
+    }
+    if !track.info.is_stream && track.info.length > 0 {
+        meta.duration = Some(Duration::from_millis(track.info.length));
+    }
+    meta.thumbnail = track.info.artwork_url.clone();
+    meta
+}
+
+async fn fetch_lavalink_metadata(
+    lavalink: &LavalinkClient,
+    guild_id: GuildId,
+    urls: &[String],
+) -> Result<HashMap<String, TrackMetadata>, Error> {
     if urls.is_empty() {
         return Ok(HashMap::new());
     }
 
     let started = std::time::Instant::now();
-    tracing::debug!(items = urls.len(), "fetching yt-dlp metadata");
+    tracing::debug!(items = urls.len(), "fetching lavalink metadata");
 
-    let mut cmd = tokio::process::Command::new("yt-dlp");
-    cmd.arg("--ignore-config")
-        .arg("--no-warnings")
-        .arg("--skip-download")
-        .arg("--dump-json")
-        .arg("-4");
-    cmd.args(ytdlp::cookies_args());
-    cmd.args(ytdlp::extra_args_from_config());
-    for u in urls {
-        cmd.arg(u);
+    let mut map = HashMap::new();
+    for url in urls {
+        let load = match lavalink.load_tracks(guild_id, url).await {
+            Ok(load) => load,
+            Err(err) => {
+                tracing::warn!(url = %url, error = %err, "failed to load metadata from lavalink");
+                continue;
+            }
+        };
+        let Some(track) = first_track_from_load(load) else {
+            tracing::debug!(url = %url, "no track data returned for metadata request");
+            continue;
+        };
+        let key = metadata_lookup_key(url);
+        let meta = metadata_from_track(url, &track);
+        map.entry(key).or_insert_with(|| meta.clone());
+
+        if let Some(src) = track.info.uri.as_deref() {
+            let src_key = metadata_lookup_key(src);
+            map.entry(src_key).or_insert(meta);
+        }
     }
-
-    let output = tokio::time::timeout(Duration::from_secs(25), cmd.output())
-        .await
-        .map_err(|_| Error::from("yt-dlp (metadata) がタイムアウトしました"))?
-        .map_err(|e| Error::from(format!("yt-dlp (metadata) 実行失敗: {e}")))?;
-
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!(
-            took_ms = started.elapsed().as_millis(),
-            stderr = %err.trim(),
-            "yt-dlp metadata command failed"
-        );
-        return Err(Error::from(format!(
-            "yt-dlp (metadata) が失敗しました: {}",
-            err.trim()
-        )));
-    }
-
     tracing::debug!(
         took_ms = started.elapsed().as_millis(),
-        "yt-dlp metadata fetched"
+        resolved = map.len(),
+        "lavalink metadata fetched"
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut map = HashMap::new();
-    for line in stdout.lines() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        let webpage_url = v
-            .get("webpage_url")
-            .and_then(|x| x.as_str())
-            .or_else(|| v.get("original_url").and_then(|x| x.as_str()))
-            .or_else(|| v.get("url").and_then(|x| x.as_str()));
-        let Some(webpage_url) = webpage_url else {
-            continue;
-        };
-        let Some(key) = normalize_youtube_key(webpage_url) else {
-            continue;
-        };
-
-        let mut meta = AuxMetadata::default();
-        meta.source_url = Some(webpage_url.to_string());
-        meta.title = v
-            .get("title")
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_string());
-        meta.thumbnail = v
-            .get("thumbnail")
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_string());
-        meta.duration = v
-            .get("duration")
-            .and_then(|x| x.as_f64())
-            .and_then(|d| {
-                if d.is_finite() && d > 0.0 {
-                    Some(d)
-                } else {
-                    None
-                }
-            })
-            .map(Duration::from_secs_f64);
-
-        map.insert(key, meta);
-    }
     Ok(map)
 }
 
 async fn prefetch_queue_metadata(
     queues: Arc<DashMap<GuildId, MusicQueue>>,
+    lavalink: Option<Arc<LavalinkClient>>,
     guild_id: GuildId,
     max_items: usize,
 ) -> Result<(), Error> {
+    let Some(lavalink) = lavalink else {
+        return Ok(());
+    };
     let Some(snapshot) = queues.get(&guild_id) else {
         return Ok(());
     };
@@ -284,9 +290,7 @@ async fn prefetch_queue_metadata(
             continue;
         }
         let url = tr.meta.source_url.clone().unwrap_or_else(|| tr.url.clone());
-        let Some(key) = normalize_youtube_key(&url) else {
-            continue;
-        };
+        let key = metadata_lookup_key(&url);
         unique_urls.entry(key).or_insert(url);
     }
     drop(snapshot);
@@ -296,12 +300,12 @@ async fn prefetch_queue_metadata(
     }
 
     let urls: Vec<String> = unique_urls.into_values().collect();
-    let mut fetched_all: HashMap<String, AuxMetadata> = HashMap::new();
+    let mut fetched_all: HashMap<String, TrackMetadata> = HashMap::new();
 
-    // yt-dlp は重いので、少量ずつ。
+    // Lavalink へのリクエスト数を制御するため少量ずつ取得する。
     const CHUNK: usize = 15;
     for chunk in urls.chunks(CHUNK) {
-        let m = fetch_ytdlp_metadata(chunk).await?;
+        let m = fetch_lavalink_metadata(&lavalink, guild_id, chunk).await?;
         fetched_all.extend(m);
     }
 
@@ -316,9 +320,7 @@ async fn prefetch_queue_metadata(
             continue;
         }
         let key_src = tr.meta.source_url.as_deref().unwrap_or(tr.url.as_str());
-        let Some(key) = normalize_youtube_key(key_src) else {
-            continue;
-        };
+        let key = metadata_lookup_key(key_src);
         if let Some(meta) = fetched_all.get(&key) {
             tr.meta = meta.clone();
         }
@@ -329,9 +331,13 @@ async fn prefetch_queue_metadata(
 
 async fn ensure_page_metadata(
     queues: &Arc<DashMap<GuildId, MusicQueue>>,
+    lavalink: Option<Arc<LavalinkClient>>,
     guild_id: GuildId,
     page: usize,
 ) -> Result<(), Error> {
+    let Some(lavalink) = lavalink else {
+        return Ok(());
+    };
     let Some(snapshot) = queues.get(&guild_id) else {
         return Ok(());
     };
@@ -354,7 +360,7 @@ async fn ensure_page_metadata(
         return Ok(());
     }
 
-    let fetched = match fetch_ytdlp_metadata(&urls_to_fetch).await {
+    let fetched = match fetch_lavalink_metadata(&lavalink, guild_id, &urls_to_fetch).await {
         Ok(m) => m,
         Err(_) => return Ok(()),
     };
@@ -371,9 +377,7 @@ async fn ensure_page_metadata(
             continue;
         }
         let key_src = tr.meta.source_url.as_deref().unwrap_or(tr.url.as_str());
-        let Some(key) = normalize_youtube_key(key_src) else {
-            continue;
-        };
+        let key = metadata_lookup_key(key_src);
         if let Some(meta) = fetched.get(&key) {
             tr.meta = meta.clone();
         }
@@ -397,6 +401,50 @@ fn pages_from_urls(urls: &[String], title: &str) -> Vec<String> {
     out
 }
 
+async fn try_autostart_from_queue(ctx: &Context<'_>, guild_id: GuildId) -> Option<TrackRequest> {
+    let lavalink = ctx.data().lavalink.clone()?;
+    if current_play_mode(&lavalink, guild_id).await != PlayMode::Stop {
+        return None;
+    }
+
+    if let Err(err) = _join(ctx, guild_id, None).await {
+        tracing::info!(
+            guild = %guild_id,
+            error = %err,
+            "queue autostart skipped (could not join voice)"
+        );
+        return None;
+    }
+
+    match play_next_from_queue_lavalink(
+        guild_id,
+        lavalink,
+        ctx.data().queues.clone(),
+        ctx.data().lavalink_playing.clone(),
+        ctx.data().history.clone(),
+        3,
+    )
+    .await
+    {
+        Ok(res) => {
+            if res.started.is_none() {
+                tracing::warn!(
+                    guild = %guild_id,
+                    skipped = res.skipped,
+                    remaining = res.remaining,
+                    last_error = ?res.last_error,
+                    "queue autostart failed to start a track"
+                );
+            }
+            res.started
+        }
+        Err(err) => {
+            tracing::warn!(guild = %guild_id, error = %err, "queue autostart error");
+            None
+        }
+    }
+}
+
 #[poise::command(slash_command, guild_only)]
 pub async fn queue(
     ctx: Context<'_>,
@@ -406,6 +454,7 @@ pub async fn queue(
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("サーバー内で実行してください")?;
     let queues = ctx.data().queues.clone();
+    let lavalink = ctx.data().lavalink.clone();
     let owner_id = ctx.author().id;
     tracing::info!(
         guild = %guild_id,
@@ -434,9 +483,18 @@ pub async fn queue(
                         }
                     }
                     tracing::info!(guild = %guild_id, added = total, "playlist enqueued");
-
-                    ctx.say(format!("📃 プレイリストをキューに追加しました ({total}件)"))
+                    let started = try_autostart_from_queue(&ctx, guild_id).await;
+                    if let Some(req) = started {
+                        let started_title =
+                            truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
+                        ctx.say(format!(
+                            "📃 プレイリストをキューに追加しました ({total}件) / 再生開始: {started_title}"
+                        ))
                         .await?;
+                    } else {
+                        ctx.say(format!("📃 プレイリストをキューに追加しました ({total}件)"))
+                            .await?;
+                    }
 
                     let pages = pages_from_urls(&urls, "追加したトラック(URL一覧)");
                     let slices: Vec<&str> = pages.iter().map(String::as_str).collect();
@@ -456,8 +514,15 @@ pub async fn queue(
             Ok(req) => {
                 queues.entry(guild_id).or_default().push_back(req.clone());
                 tracing::info!(guild = %guild_id, url = %req.url, "enqueued track");
-                let title = truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
-                ctx.say(format!("✅ キューに追加しました: {title}")).await?;
+                if let Some(started) = try_autostart_from_queue(&ctx, guild_id).await {
+                    let title =
+                        truncate_chars(started.meta.title.as_deref().unwrap_or(&started.url), 120);
+                    ctx.say(format!("✅ キューに追加し、再生を開始しました: {title}"))
+                        .await?;
+                } else {
+                    let title = truncate_chars(req.meta.title.as_deref().unwrap_or(&req.url), 120);
+                    ctx.say(format!("✅ キューに追加しました: {title}")).await?;
+                }
             }
             Err(e) => {
                 tracing::warn!(guild = %guild_id, error = %e, "failed to create track request");
@@ -493,11 +558,14 @@ pub async fn queue(
     let handle = ctx.send(reply).await?;
     let mut msg = handle.message().await?.into_owned();
 
-    // 先読み: 後のページ移動でyt-dlp待ちが発生しにくいようにする（重いのでバックグラウンド）。
+    // 先読み: 後のページ移動時にタイトルが未解決になりにくいようバックグラウンドで取得する。
     {
         let queues = queues.clone();
+        let lavalink = lavalink.clone();
         tokio::spawn(async move {
-            let _ = prefetch_queue_metadata(queues, guild_id, PREFETCH_METADATA_MAX_ITEMS).await;
+            let _ =
+                prefetch_queue_metadata(queues, lavalink, guild_id, PREFETCH_METADATA_MAX_ITEMS)
+                    .await;
         });
     }
 
@@ -507,6 +575,7 @@ pub async fn queue(
     {
         let queues = queues.clone();
         let http = http.clone();
+        let lavalink = lavalink.clone();
         let generation = generation.clone();
         let expected_generation = generation.fetch_add(1, Ordering::AcqRel) + 1;
         let msg_id = msg.id;
@@ -516,7 +585,7 @@ pub async fn queue(
             if generation.load(Ordering::Acquire) != expected_generation {
                 return;
             }
-            let _ = ensure_page_metadata(&queues, guild_id, page0).await;
+            let _ = ensure_page_metadata(&queues, lavalink, guild_id, page0).await;
             if generation.load(Ordering::Acquire) != expected_generation {
                 return;
             }
@@ -647,6 +716,7 @@ pub async fn queue(
         let expected_generation = generation.fetch_add(1, Ordering::AcqRel) + 1;
         let queues2 = queues.clone();
         let http2 = http.clone();
+        let lavalink2 = lavalink.clone();
         let msg_id = msg.id;
         let channel_id = msg.channel_id;
         let page_for_task = page;
@@ -654,7 +724,7 @@ pub async fn queue(
             if generation.load(Ordering::Acquire) != expected_generation {
                 return;
             }
-            let _ = ensure_page_metadata(&queues2, guild_id, page_for_task).await;
+            let _ = ensure_page_metadata(&queues2, lavalink2, guild_id, page_for_task).await;
             if generation.load(Ordering::Acquire) != expected_generation {
                 return;
             }

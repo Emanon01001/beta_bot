@@ -110,15 +110,7 @@ fn find_via_pkg_config(is_static: bool) -> bool {
 /// if the `static`-feature is enabled, the environment variable
 /// `LIBOPUS_STATIC` or `OPUS_STATIC` is set.
 fn default_library_linking() -> bool {
-    #[cfg(any(windows, target_os = "macos", target_env = "musl"))]
-    {
-        return true;
-    }
-    #[cfg(any(target_os = "freebsd", all(unix, target_env = "gnu")))]
-    {
-        return false;
-    }
-    false
+    cfg!(any(windows, target_os = "macos", target_env = "musl"))
 }
 
 
@@ -172,8 +164,10 @@ fn main() {
         }
     }
 
-    #[cfg(all(target_os = "windows", target_env = "msvc"))]
-    {
+    // Build scripts run on the host. Use TARGET env instead of cfg! here so
+    // cross-compiling to Android on Windows does not incorrectly link msvcrt.
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("windows-msvc") {
         // Choose debug CRT when building in debug/profile (tests use debug),
         // otherwise choose the release CRT.
         let profile = std::env::var("PROFILE").unwrap_or_default();

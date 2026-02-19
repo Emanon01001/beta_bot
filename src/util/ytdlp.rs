@@ -75,8 +75,17 @@ pub fn extra_args_from_config() -> Vec<String> {
     args
 }
 
-/// ルート(実行カレント)直下の `cookies.txt` を yt-dlp に渡すための固定引数を返す。
-/// 単純に ["--cookies", "cookies.txt"] を返すだけです。
+/// `songbird::input::YoutubeDl::user_args` 用に、
+/// ベース引数 + cookies + 設定/環境由来の追加引数を 1 つの配列にまとめる。
+pub fn compose_ytdlp_user_args(mut base: Vec<String>) -> Vec<String> {
+    base.extend(["--js-runtimes".into(), "node".into()]);
+    base.extend(cookies_args());
+    base.extend(extra_args_from_config());
+    base
+}
+
+/// `cookies.txt` を yt-dlp に渡すための固定引数を返す。
+/// 優先度: EXE_DIR/cookies.txt -> CWD/cookies.txt
 pub fn cookies_args() -> Vec<String> {
     // If user/config already specifies cookies, do not inject defaults.
     if env::var("YTDLP_COOKIES_FROM_BROWSER").is_ok() || env::var("YTDLP_COOKIES_FILE").is_ok() {
@@ -96,12 +105,7 @@ pub fn cookies_args() -> Vec<String> {
         }
     }
 
-    // Fallback: try to find a cookies.txt near CWD or the binary.
-    // Priority: CWD/cookies.txt -> EXE_DIR/cookies.txt
-    let cwd_path = PathBuf::from("cookies.txt");
-    if cwd_path.is_file() {
-        return vec!["--cookies".into(), cwd_path.to_string_lossy().into_owned()];
-    }
+    // Fallback: try to find a cookies.txt near the executable first.
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
             let p = dir.join("cookies.txt");
@@ -109,6 +113,12 @@ pub fn cookies_args() -> Vec<String> {
                 return vec!["--cookies".into(), p.to_string_lossy().into_owned()];
             }
         }
+    }
+
+    // Compatibility fallback for local runs from source tree.
+    let cwd_path = PathBuf::from("cookies.txt");
+    if cwd_path.is_file() {
+        return vec!["--cookies".into(), cwd_path.to_string_lossy().into_owned()];
     }
     Vec::new()
 }

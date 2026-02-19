@@ -6,12 +6,14 @@ use url::Url;
 
 use crate::{
     get_http_client,
-    util::{
-        alias::Error,
-        play::is_youtube,
-        ytdlp::{cookies_args, extra_args_from_config},
-    },
+    util::{alias::Error, ytdlp::compose_ytdlp_user_args},
 };
+
+pub type TrackMetadata = AuxMetadata;
+
+fn is_youtube(u: &str) -> bool {
+    u.contains("youtube.com") || u.contains("youtu.be") || u.contains("m.youtube.com")
+}
 
 /// 再生リクエストの元情報（入力文字列と取得済みメタデータ）を保持する。
 /// 検索語の場合も最終的な source_url を解決して `url` に書き戻す。
@@ -68,9 +70,10 @@ impl TrackRequest {
         } else {
             YoutubeDl::new_search_ytdl_like("yt-dlp", get_http_client(), raw.clone())
         }
-        .user_args(vec!["--ignore-config".into(), "--no-warnings".into()])
-        .user_args(cookies_args())
-        .user_args(extra_args_from_config());
+        .user_args(compose_ytdlp_user_args(vec![
+            "--ignore-config".into(),
+            "--no-warnings".into(),
+        ]));
 
         // Apply a timeout to guard against yt-dlp hangs; if it fails, continue without metadata
         let fut = ytdl.aux_metadata();

@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 
 use crate::util::{config::MusicConfig, repeat::RepeatMode, track::TrackRequest};
 use std::collections::VecDeque;

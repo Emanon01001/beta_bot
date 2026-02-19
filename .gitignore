@@ -1,8 +1,34 @@
-/Cargo.lock
 /target
+/target_tmp
+Cargo.lock
+
+# Editor / local tooling
 .vscode/
-.cargo
+.idea/
+.claude/
+.cargo/
+
+# Local config / secrets
 Setting.toml
 cookies.txt
+.env
+.env.*
+!.env.example
+
+# Logs / debug artifacts
+*.log
+yt_err.txt
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Build outputs / binaries
 *.exe
 *.wav
+
+# Lavalink runtime bundle (keep config only)
+src/lavalink/jdk-*/
+src/lavalink/Lavalink.jar
+src/lavalink/plugins/*.jar
+!src/lavalink/application.yml

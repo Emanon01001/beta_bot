@@ -1,8 +1,10 @@
 pub mod alias;
 pub mod capstone;
 pub mod config;
+pub mod lavalink;
+pub mod lavalink_player;
 pub mod music_ui;
-pub mod play;
+pub mod player;
 pub mod playlist;
 pub mod queue;
 pub mod repeat;
